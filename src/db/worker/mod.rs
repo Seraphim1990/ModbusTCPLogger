@@ -7,3 +7,4 @@ mod user_group_worker;
 mod user_sub_group_workers;
 mod assign_worker;
 pub mod tokens_worker;
+pub mod gen_fn;

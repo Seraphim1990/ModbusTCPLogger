@@ -25,9 +25,9 @@ pub fn values_router() -> Router<AppState> {
         .route("/values/get_all", get(get_all_values))
         .route("/values/create", post(create_value))
         .route("/values/get_logging_only", get(get_logging_values))
-        .route("/values/get_by_parent_id/:id", get(get_by_parent_id))
-        .route("/values/update/:id", put(update_value))
-        .route("/values/delete/:id", delete(delete_value))
+        .route("/values/get_by_parent_id/{id}", get(get_by_parent_id))
+        .route("/values/update/{id}", put(update_value))
+        .route("/values/delete/{id}", delete(delete_value))
         .route_layer(middleware::from_fn(admin_middleware))
 }
 

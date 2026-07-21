@@ -36,14 +36,14 @@ impl RegisterDecodingPlugin {
         }
     }
 
-    pub fn find_your_registers(&mut self, dataset: &Vec<i32>) -> bool {
+    pub fn find_your_registers(&mut self, dataset: &[i32]) -> bool {
         match self {
             RegisterDecodingPlugin::Bit(p) => {p.find_your_registers(dataset)},
             RegisterDecodingPlugin::Satec(p) => {p.find_your_registers(dataset)},
             RegisterDecodingPlugin::Shift(p) => {p.find_your_registers(dataset)},
         }
     }
-    pub fn get_value(&self, reg_list: &Vec<u16>, timestamp: i64) -> ModbusMeasure {
+    pub fn get_value(&self, reg_list: &[u16], timestamp: i64) -> ModbusMeasure {
         match self {
             RegisterDecodingPlugin::Bit(p) => {p.get_value(reg_list, timestamp)},
             RegisterDecodingPlugin::Satec(p) => {p.get_value(reg_list, timestamp)},
@@ -76,20 +76,20 @@ impl RegisterDecodingPlugin {
 }
 
 
-pub fn check_json(id: i32, json_data: &String) -> Result<(), String> {
+pub fn check_json(id: i32, json_data: &str) -> Result<(), String> {
     match id {
         1 => {
-            let _: ComaShiftSerde = serde_json::from_str(json_data.as_str()).map_err(|e|
+            let _: ComaShiftSerde = serde_json::from_str(json_data).map_err(|e|
                 format!("Помилка json ComaShift: {}", e)
             )?;
         },
         2 => {
-            let _: SatecDoubleRegistersSerde = serde_json::from_str(json_data.as_str()).map_err(|e|
+            let _: SatecDoubleRegistersSerde = serde_json::from_str(json_data).map_err(|e|
                 format!("Помилка json SatecDoubleRegisters: {}", e)
             )?;
         },
         3 => {
-            let _: BitInWordSerde = serde_json::from_str(json_data.as_str()).map_err(|e|
+            let _: BitInWordSerde = serde_json::from_str(json_data).map_err(|e|
                 format!("Помилка json BitInWord: {}", e)
             )?;
         },

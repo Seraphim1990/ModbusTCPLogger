@@ -26,12 +26,12 @@ use crate::api::router::middlewares::admin_middleware;
 pub fn devices_router() -> Router<AppState> {
     Router::new()
         .route("/devices/get_all", get(get_devices))
-        .route("/devices/get_by_parent_id/:id", get(get_devices_by_parent_id))
+        .route("/devices/get_by_parent_id/{id}", get(get_devices_by_parent_id))
         .route("/devices/create", post(create_devices))
-        .route("/devices/update/:id", put(update_device))
-        .route("/devices/delete/:id", delete(delete_device))
+        .route("/devices/update/{id}", put(update_device))
+        .route("/devices/delete/{id}", delete(delete_device))
         .route_layer(middleware::from_fn(admin_middleware))
-        .route("/devices/get_device/:id", get(get_device))
+        .route("/devices/get_device/{id}", get(get_device))
 }
 
 pub async fn create_devices(State(state): State<AppState>, Json(payload): Json<DeviceCreate>) -> impl IntoResponse {
@@ -203,26 +203,19 @@ pub async fn get_device(State(state): State<AppState>, Path(id): Path<u32>) -> i
 }
 
 pub async fn update_device(State(state): State<AppState>, Path(id): Path<u32>, Json(payload): Json<DeviceUpdate>) -> impl IntoResponse {
+    
     // Валідація Option-полів безпечним способом
-    if let Some(addr) = payload.address {
-        if addr < 0 || addr > 255 {
-            return (StatusCode::BAD_REQUEST, "Не вірна адреса пристрою").into_response();
-        }
+    if let Some(addr) = payload.address && !(0..=255).contains(&addr) {
+        return (StatusCode::BAD_REQUEST, "Не вірна адреса пристрою").into_response();
     }
-    if let Some(recall) = payload.time_for_recall {
-        if recall < 0 {
-            return (StatusCode::BAD_REQUEST, "Час опитування не може бути від'ємним").into_response();
-        }
+    if let Some(recall) = payload.time_for_recall && recall < 0 {
+        return (StatusCode::BAD_REQUEST, "Час опитування не може бути від'ємним").into_response();
     }
-    if let Some(timeout) = payload.timeout {
-        if timeout < 0 {
-            return (StatusCode::BAD_REQUEST, "Час таймауту не може бути від'ємним").into_response();
-        }
+    if let Some(timeout) = payload.timeout && timeout < 0 {
+        return (StatusCode::BAD_REQUEST, "Час таймауту не може бути від'ємним").into_response();
     }
-    if let Some(retry) = payload.retry_count {
-        if retry < 0 {
-            return (StatusCode::BAD_REQUEST, "Кількість повторів не може бути від'ємною").into_response();
-        }
+    if let Some(retry) = payload.retry_count && retry < 0 {
+        return (StatusCode::BAD_REQUEST, "Кількість повторів не може бути від'ємною").into_response();
     }
 
     let update_device_cmd = CommandType::DeviceCommand(

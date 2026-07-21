@@ -7,6 +7,7 @@ const XOR_KEY_CHALLENGE: u8 = 0xAA; // Ключ для першої тараба
 const XOR_KEY_LICENSE: u8 = 0x55;   // Ключ для другої тарабарщини (ліцензія)
 
 // Імітація отримання ID диска (твоя функція з минулого кроку)
+
 fn get_disk_serial() -> String {
     // Для тесту, якщо powershell видасть помилку, повернемо заглушку
     let output = Command::new("powershell")

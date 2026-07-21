@@ -18,6 +18,11 @@ pub fn event(msg: String) {
     send_log(msg, head,  "EVENT");
 }
 
+pub fn debug(msg: String) {
+    let head = "[DEBUG]".purple().bold();
+    send_log(msg, head,  "EVENT");
+}
+
 fn send_log(msg: String, log_head: ColoredString, head: &str) {
     let now = Local::now();
     let ts = now.format("%y-%m-%d %H:%M:%S").to_string();

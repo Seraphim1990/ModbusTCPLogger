@@ -23,6 +23,7 @@ pub struct MeasureQuery {
     pub end_time: i64,
 }
 impl MeasureQuery {
+    #[allow(clippy::wrong_self_convention)]
     fn to_request(self) -> Result<GetMeasures, String> {
         let ids: Result<Vec<i32>, _> = self.value_ids
             .split(',')

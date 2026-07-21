@@ -10,6 +10,7 @@ use crate::messages::commands::device::DeviceCommand;
 use crate::db::worker::value_worker;
 use crate::messages::config_event::{ConfigEvent, ConfigEventType};
 use crate::db::worker::node_worker::get_node_by_id;
+use crate::db::worker::gen_fn::run_db_with_timeout;
 
 pub fn command_device(pool: &Pool<MySql>, command: Command, tx_to_reader: mpsc::Sender<ConfigEvent>) {
     let pool = pool.clone();
@@ -20,11 +21,15 @@ pub fn command_device(pool: &Pool<MySql>, command: Command, tx_to_reader: mpsc::
                 let device = device.clone();
                 tokio::spawn(async move {
                     if let DeviceCommand::Create(device) = device.as_ref() {
+                        run_db_with_timeout(create_device(&pool, device, tx_to_reader), 5, tx, "DeviceCommand::Create").await;
+                        /*
                         let res = create_device(&pool, device, tx_to_reader).await;
                         if tx.send(res).is_err() {
                             let msg = "Помилка повернення калбеку DeviceCommand::Create".to_string();
                             printers::err(msg)
                         }
+
+                         */
                     }
                 });
             },
@@ -32,11 +37,15 @@ pub fn command_device(pool: &Pool<MySql>, command: Command, tx_to_reader: mpsc::
                 let device = device.clone();
                 tokio::spawn(async move {
                     if let DeviceCommand::Delete(device) = device.as_ref() {
+                        run_db_with_timeout(delete_device(&pool, device, tx_to_reader), 5, tx, "DeviceCommand::Delete").await;
+                        /*
                         let res = delete_device(&pool, device, tx_to_reader).await;
                         if tx.send(res).is_err() {
                             let msg = format!("Помилка повернення калбеку DeviceCommand::Delete id: {}", device.id);
                             printers::err(msg)
                         }
+                        
+                         */
                     }
                 });
             },
@@ -44,11 +53,15 @@ pub fn command_device(pool: &Pool<MySql>, command: Command, tx_to_reader: mpsc::
                 let device = device.clone();
                 tokio::spawn(async move {
                     if let DeviceCommand::Update(device) = device.as_ref() {
+                        run_db_with_timeout(update_device(&pool, device, tx_to_reader), 5, tx, "DeviceCommand::Update").await;
+                        /*
                         let res = update_device(&pool, device, tx_to_reader).await;
                         if tx.send(res).is_err() {
                             let msg = format!("Помилка повернення калбеку DeviceCommand::Update id: {}", device.id);
                             printers::err(msg)
                         }
+                        
+                         */
                     }
                 });
             },
@@ -63,35 +76,49 @@ pub fn devise_get(pool: &Pool<MySql>, request: DeviceRequest) {
         DeviceRequest::GetDeviceById(request) => {
             tokio::spawn(async move {
                 let tx = request.request_channel;
+                run_db_with_timeout(get_device_by_id(&pool, request.id), 3, tx, "DeviceRequest::GetDeviceById").await;
+                /*
                 let res = get_device_by_id(&pool, request.id).await;
                 if tx.send(res).is_err() {
                     let msg = format!("Помилка відправки DeviceRequest::GetDeviceById {}", request.id);
                     printers::warn(msg);
                 };
+                
+                 */
             });
         }
         DeviceRequest::GetByNode(request) => {
             tokio::spawn(async move {
                 let tx = request.request_channel;
+                run_db_with_timeout(get_device_by_node_id(&pool, request.node_id), 3, tx, "DeviceRequest::GetByNode").await;
+                /*
                 let res = get_device_by_node_id(&pool, request.node_id).await;
                 if  tx.send(res).is_err() {
                     let msg = format!("Помилка відправки DeviceRequest::GetByNode {}", request.node_id);
                     printers::warn(msg);
                 };
+                
+                 */
             });
         }
         DeviceRequest::GetAllDevices(request) => {
             tokio::spawn(async move {
                 let tx = request.request_channel;
+                run_db_with_timeout(get_all_devices(&pool), 3, tx, "DeviceRequest::GetAllDevices").await;
+                /*
                 let res = get_all_devices(&pool).await;
                 if tx.send(res).is_err() {
                     printers::warn(String::from("Помилка відправки DeviceRequest::GetAllDevices"));
                 };
+                
+                 */
             });
         }
         DeviceRequest::GetDeleted(request) => {
             tokio::spawn(async move {
                 let tx = request.request_channel;
+                run_db_with_timeout(get_deleted_devices(&pool), 3, tx, "DeviceRequest::GetDeleted").await;
+                /*
                 let res = get_deleted_devices(&pool).await;
                 let send_res = tx.send(res);
                 match send_res {
@@ -100,6 +127,8 @@ pub fn devise_get(pool: &Pool<MySql>, request: DeviceRequest) {
                         printers::warn(String::from("Помилка відправки DeviceRequest::GetDeleted"));
                     }
                 };
+                
+                 */
             });
         }
     }
@@ -255,12 +284,12 @@ async fn delete_device(pool: &Pool<MySql>, device: &DeviceDelete, tx_to_reader: 
     .execute(&mut *tx)
     .await
         .map_err(|err| {
-            let msg = format!("Помилка видалення пристрою id: {}\n{}", device.id, err.to_string());
+            let msg = format!("Помилка видалення пристрою id: {}\n{}", device.id, err);
             printers::err(msg.clone());
             msg
         })?;
     tx.commit().await.map_err(|err| {
-        let msg = format!("Помилка видалення пристрою id: {}\nПомилка коміту транзакції: \n{}", device.id, err.to_string());
+        let msg = format!("Помилка видалення пристрою id: {}\nПомилка коміту транзакції: \n{}", device.id, err);
         printers::err(msg.clone());
         msg
     })?;
@@ -331,12 +360,12 @@ async fn create_device(pool: &Pool<MySql>, device: &DeviceCreate, tx_to_reader: 
             msg
         })?;
 
-    if let Some(_) = device_read {
+    if device_read.is_some() {
         return Err("Ця нода уже має пристрій з такою адресою".to_string());
     }
 
     let description = match &device.description {
-        Some(description) => &description,
+        Some(description) => description,
         None => &"".to_string(),
     };
 
@@ -379,25 +408,17 @@ async fn create_device(pool: &Pool<MySql>, device: &DeviceCreate, tx_to_reader: 
 }
 
 async fn update_device(pool: &Pool<MySql>, device: &DeviceUpdate, tx_to_reader: mpsc::Sender<ConfigEvent>) -> Result<(), String> {
-    if let Some(addr) = device.address {
-        if addr < 0 || addr > 255 {
-            return Err("Не вірна адреса пристрою".to_string());
-        }
+    if let Some(addr) = device.address && !(0..=255).contains(&addr) {
+        return Err("Не вірна адреса пристрою".to_string());
     }
-    if let Some(recall) = device.time_for_recall {
-        if recall < 0 {
-            return Err("Час опитування не може бути від'ємним".to_string());
-        }
+    if let Some(recall) = device.time_for_recall && recall < 0{
+        return Err("Час опитування не може бути від'ємним".to_string());
     }
-    if let Some(timeout) = device.timeout {
-        if timeout < 0 {
-            return Err("Час таймауту не може бути від'ємним".to_string());
-        }
+    if let Some(timeout) = device.timeout && timeout < 0 {
+        return Err("Час таймауту не може бути від'ємним".to_string());
     }
-    if let Some(retry) = device.retry_count {
-        if retry < 0 {
-            return Err("Кількість повторів не може бути від'ємною".to_string());
-        }
+    if let Some(retry) = device.retry_count && retry < 0 {
+        return Err("Кількість повторів не може бути від'ємною".to_string());
     }
 
     // Якщо прилітає parent_node_id, перевіряємо його на валідність та існування ноди
@@ -422,7 +443,7 @@ async fn update_device(pool: &Pool<MySql>, device: &DeviceUpdate, tx_to_reader: 
         }
     }
 
-    if device.address.is_some() || device.parent_node_id.is_some() { // TODO розширити логіку для перевірки унікальності
+    if device.address.is_some() || device.parent_node_id.is_some() {
         let device_read = sqlx::query_as::<_, DeviceRead>(
             "SELECT id, parent_node_id, device_name, address, time_for_recall, timeout, retry_count, is_active, read_by_group, description, deleted, deleted_at
              FROM devices
@@ -438,10 +459,8 @@ async fn update_device(pool: &Pool<MySql>, device: &DeviceUpdate, tx_to_reader: 
                 msg
             })?;
 
-        if let Some(device_read) = device_read {
-            if device_read.id != device.id as i32 {
-                return Err("Ця нода уже має пристрій з такою адресою".to_string());
-            }
+        if let Some(device_read) = device_read && device_read.id != device.id {
+            return Err("Ця нода уже має пристрій з такою адресою".to_string());
         }
     }
 

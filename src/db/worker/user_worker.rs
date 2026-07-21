@@ -8,6 +8,7 @@ use crate::messages::commands::{
 use crate::logger::printers;
 use sqlx::mysql::MySqlQueryResult;
 use crate::db::schemas::users::{LoginRequest, UserCreate, UserRead, UserUpdate};
+use crate::db::worker::gen_fn::run_db_with_timeout;
 
 pub fn user_command(pool: &Pool<MySql>, command: Command){
     let pool = pool.clone();
@@ -18,10 +19,14 @@ pub fn user_command(pool: &Pool<MySql>, command: Command){
                 let user = user.clone();
                 tokio::spawn(async move {
                     if let UserCommand::Create(user) = user.deref() {
+                        run_db_with_timeout(create_user(&pool, user), 5, tx, "UserCommand::Create").await;
+                        /*
                         let res = create_user(&pool, user).await;
                         if tx.send(res).is_err() {
                             printers::err("Помилка відправки калбеку UserCommand::Create".to_string())
                         }
+
+                         */
                     };
                 });
             },
@@ -29,10 +34,14 @@ pub fn user_command(pool: &Pool<MySql>, command: Command){
                 let user = user.clone();
                 tokio::spawn(async move {
                     if let UserCommand::Update(user) = user.deref() {
+                        run_db_with_timeout(update_user(&pool, user), 5, tx, "UserCommand::Update").await;
+                        /*
                         let res = update_user(&pool, user).await;
                         if tx.send(res).is_err() {
                             printers::err("Помилка відправки калбеку UserCommand::Update".to_string())
                         }
+
+                         */
                     }
                 });
             },
@@ -40,10 +49,14 @@ pub fn user_command(pool: &Pool<MySql>, command: Command){
                 let user = user.clone();
                 tokio::spawn(async move {
                    if let UserCommand::Delete(user) = user.deref() {
+                       run_db_with_timeout(delete_user(&pool, user.id), 5, tx, "UserCommand::Delete").await;
+                       /*
                        let res = delete_user(&pool, user.id).await;
                        if tx.send(res).is_err() {
                            printers::err("Помилка відправки калбеку UserCommand::Delete".to_string())
                        }
+
+                        */
                    }
                 });
             },
@@ -58,28 +71,40 @@ pub fn users_get(pool: &Pool<MySql>, request: UserRequest){
         UserRequest::GetById(request) => {
             tokio::spawn(async move {
                 let tx = request.request_channel;
+                run_db_with_timeout(get_user_by_id(&pool, request.id), 3, tx, "UserRequest::GetById").await;
+                /*
                 let res = get_user_by_id(&pool, request.id).await;
                 if tx.send(res).is_err() {
                     printers::err(format!("Помилка відправлення відповіді UserRequest::GetById: {}", request.id));
                 }
+
+                 */
             });
         },
         UserRequest::GetAll(request) => {
             tokio::spawn(async move {
                 let tx = request.request_channel;
+                run_db_with_timeout(get_all_users(&pool), 3, tx, "UserRequest::GetAll").await;
+                /*
                 let res = get_all_users(&pool).await;
                 if tx.send(res).is_err() {
                     printers::err("Помилка відправки відповіді UserRequest::GetAll".to_string());
                 }
+
+                 */
             });
         }
         UserRequest::Verify(request) => {
             tokio::spawn(async move {
                 let tx = request.request_channel;
+                run_db_with_timeout(verify_user_credentials(&pool, &request.user), 3, tx, "UserRequest::Verify").await;
+                /*
                 let res = verify_user_credentials(&pool, &request.user).await;
                 if tx.send(res).is_err() {
                     printers::err("Помилка відправки відповіді UserRequest::GetExist".to_string());
                 }
+
+                 */
             });
         }
     }

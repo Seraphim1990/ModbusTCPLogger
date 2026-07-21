@@ -42,6 +42,21 @@ struct SubscribeRequest {
     devices: Vec<i32>,
 }
 
+pub enum CoordUnitWebSocketCommand {
+    New {
+        id: usize,
+        unit: CoordUnitWebSocketData
+    },
+    Change{
+        old_id: usize,
+        new_id: usize,
+        unit: CoordUnitWebSocketData,
+    },
+    Delete{
+        id: usize,
+    }
+}
+
 pub struct CoordUnitWebSocketData {
     tags: HashSet<String>,
     devises: HashSet<i32>,

@@ -1,3 +1,7 @@
+#![allow(clippy::clone_on_copy)]
+#![allow(clippy::wrong_self_convention)]
+#![allow(clippy::result_large_err)]
+
 use messages::main_msg::MainMsg;
 use tokio::io::{AsyncBufReadExt, BufReader as TokioBufReader};
 use tokio::sync::mpsc;
@@ -14,6 +18,7 @@ mod api;
 pub mod messages;
 mod data_master;
 mod minimal_copy_safe;
+
 
 #[tokio::main]
 async fn main() {
@@ -116,7 +121,7 @@ async fn main() {
         });
 
         let mut data_master_handler = tokio::spawn(async move {
-            data_master::data_master::run_data_master(from_api_rx, to_api_tx, from_reader_rx, to_reader_tx, to_db_tx, from_db_rx).await; // контролер
+            data_master::data_master_loop::run_data_master(from_api_rx, to_api_tx, from_reader_rx, to_reader_tx, to_db_tx, from_db_rx).await; // контролер
         });
 
         let mut reader_handler = tokio::spawn(async move {

@@ -1,6 +1,9 @@
+use core::time::Duration;
 use sqlx::{MySql, Pool};
+use sqlx::__rt::timeout;
 use crate::messages::requests::measure_request::{HashedValue};
 use crate::logger::printers;
+use sqlx::QueryBuilder;
 
 struct ForFlush{
     id: i32,
@@ -10,23 +13,19 @@ struct ForFlush{
 pub struct DbMeasureUnit {
     pool: Pool<MySql>,
     buff : Vec<ForFlush>,
-    buff_errored : bool,
 }
 
 impl DbMeasureUnit {
     pub fn new(pool: Pool<MySql>) -> Self {
         DbMeasureUnit {
-            buff : Vec::new(),
-            buff_errored : false,
+            buff : Vec::with_capacity(60),
             pool
         }
     }
     pub async fn get_measures(&self, val_id: i32, from: i64, to: i64) -> Result<Vec<HashedValue>, String> {
 
-        if self.buff_errored {
-            return Err("Проблеми з архівацією даних".to_string()); // якшо в мене не получилось зберегти транзакцію, нада хоть якось це клієнту довести
-        }
-        let measures = sqlx::query_as::<_, HashedValue>(
+        match timeout(Duration::from_secs(20),
+                       sqlx::query_as::<_, HashedValue>(
             "
             SELECT
             measure_value as val,
@@ -37,25 +36,37 @@ impl DbMeasureUnit {
             AND measure_time <= ?
             ORDER BY measure_time
             "
-        )
+            )
             .bind(val_id)
             .bind(from)
             .bind(to)
             .fetch_all(&self.pool)
-            .await
-            .map_err(|e|{
+        ).await
+        {
+            Ok(Ok(res)) => {Ok(res)}
+            Ok(Err(e)) => {
                 let msg = format!("Помилка читання вимірів із бази даних: {:?}", e);
                 printers::err(msg.clone());
-                msg
-            })?;
-        Ok(measures)
+                Err(msg)
+            }
+            Err(_) => {
+                let msg = "Таймаут читання з бази даних".to_string();
+                printers::err(msg.clone());
+                Err(msg)
+            }
+        }
     }
     pub async fn save_value(&mut self, val_id: i32, val: HashedValue) -> Result<(), ()> {
         let saved_value = ForFlush {id: val_id, value: val};
         self.buff.push(saved_value);
         if self.buff.len() > 20 {
-            self.flush().await?;
-        }
+            return timeout(Duration::from_secs(10),
+                           self.flush()) // flush -> Result<(), ()>
+                .await
+                .map_err(|_| {
+                    printers::err("Таймаут збереження в базу даних".to_string());
+                })?;
+        };
         Ok(())
     }
     async fn flush(&mut self) -> Result<(), ()> {
@@ -65,33 +76,29 @@ impl DbMeasureUnit {
         let mut tx = self.pool.begin()
             .await
             .map_err(|e| {
-                self.buff_errored = true;
                 printers::err(format!("Помилка відкриття транзакції для збереження буферу вимірів: {}", e));
-                ()
             })?;
 
-        if self.buff_errored {self.buff_errored = false;}
-        for m in &self.buff {
-            sqlx::query(
-                "INSERT INTO measures
-            (value_id, measure_value, measure_time)
-            VALUES (?, ?, ?)"
-            )
-                .bind(m.id)
-                .bind(m.value.val)
-                .bind(m.value.timestamp)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| {
-                    self.buff_errored = true;
-                    printers::err(format!("Помилка проведення транзакції для збереження буферу вимірів: {}", e));
-                    ()
-                })?;
-        }
+        let mut builder = QueryBuilder::new(
+            "INSERT INTO measures (value_id, measure_value, measure_time) "
+        );
+
+        builder.push_values(&self.buff, |mut b, m| {
+            b.push_bind(m.id)
+                .push_bind(m.value.val)
+                .push_bind(m.value.timestamp);
+        });
+
+        builder
+            .build()
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                printers::err(format!("Помилка завершення транзакції для збереження буферу вимірів: {}", e));
+            })?;
+
         tx.commit().await.map_err(|e| {
-            self.buff_errored = true;
             printers::err(format!("Помилка завершення транзакції для збереження буферу вимірів: {}", e));
-            ()
         })?;
         self.buff.clear();
         Ok(())

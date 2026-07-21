@@ -3,7 +3,7 @@ use tokio::sync::mpsc;
 use crate::logger::*;
 use crate::messages::config_event::ConfigEvent;
 
-pub async fn run_data_master(mut from_api: mpsc::Receiver<MainMsg>, to_api: mpsc::Sender<MainMsg>, // TODO to_api change to broadcast!
+pub async fn run_data_master(mut from_api: mpsc::Receiver<MainMsg>, to_api: mpsc::Sender<MainMsg>,
                              mut from_reader: mpsc::Receiver<MainMsg>, to_reader: mpsc::Sender<ConfigEvent>,
                              to_db: mpsc::Sender<MainMsg>, mut from_db: mpsc::Receiver<ConfigEvent> )
 {

@@ -13,7 +13,6 @@ use crate::reader::reader_loop::reading_loop::read_master_struct::ReadMaster;
 use crate::messages::config_event::{ConfigEvent, ConfigEventType};
 
 pub async fn node_loop(to_controller: mpsc::Sender<MainMsg>, from_controller: broadcast::Receiver<ConfigEvent>, conf: NodeRead) {
-    let conf = conf;
     let to_controller = to_controller;
     let mut from_controller = from_controller;
     let mut read_master = ReadMaster::new(&conf, to_controller);

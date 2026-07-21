@@ -1,11 +1,12 @@
 use crate::reader::structs::modbus_measure::ModbusMeasure;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum RegType {
     Coils,
     Discrete,
+    Input,
+    #[default]
     Holding,
-    Input
 }
 
 impl RegType {
@@ -19,16 +20,11 @@ impl RegType {
         }
     }
 }
-impl Default for RegType {
-    fn default() -> RegType {
-        RegType::Holding
-    }
-}
 
 pub trait ValueInterface {
     fn init(&mut self, settings: String, id: i32, logging: bool) -> Vec<i32>;
-    fn find_your_registers(&mut self, dataset: &Vec<i32>) -> bool;
-    fn get_value(&self, reg_list: &Vec<u16>, timestamp: i64) -> ModbusMeasure;
+    fn find_your_registers(&mut self, dataset: &[i32]) -> bool;
+    fn get_value(&self, reg_list: &[u16], timestamp: i64) -> ModbusMeasure;
     fn fail(&self, timestamp: i64) -> ModbusMeasure;
     fn get_type(&self) -> RegType;
 

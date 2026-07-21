@@ -48,6 +48,5 @@ pub async fn auth_middleware(mut request: Request,
     request
         .extensions_mut()
         .insert(token_data.claims);
-
     Ok(next.run(request).await)
 }

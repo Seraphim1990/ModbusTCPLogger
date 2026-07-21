@@ -38,6 +38,10 @@ pub fn auth() -> Router<AppState> {
         .route("/auth/logout", post(logout))
         .route("/auth/refresh_token", post(refresh_token))
         .route("/auth/me", get(me))
+        .route("/bit", get(bit))
+}
+async fn bit() -> impl IntoResponse {
+    (StatusCode::OK, "Hello world")
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -122,7 +126,7 @@ async fn login(State(state): State<AppState>, Json(payload): Json<UserLogin>) ->
         return e.into_response();
     }
 
-    if let Err(_) = rx.await {
+    if rx.await.is_err() {
         return (StatusCode::INTERNAL_SERVER_ERROR, "Error generating access token").into_response()
     }
 
@@ -185,7 +189,7 @@ async fn logout(state: State<AppState>, Json(payload): Json<RefreshRequest>) -> 
         return e.into_response();
     }
 
-    if let Err(_) = rx.await {
+    if rx.await.is_err() {
         return (StatusCode::INTERNAL_SERVER_ERROR, "Error generating access token").into_response()
     }
 

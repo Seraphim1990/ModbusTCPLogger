@@ -39,14 +39,14 @@ impl ReadStep{
     pub fn add_unit(&mut self, unit: RegisterDecodingPlugin){
         self.values.push(unit);
     }
-    pub fn get_value(&self, reg_list: &Vec<u16>) -> Vec<ModbusMeasure>{
+    pub fn get_value(&self, reg_list: &[u16]) -> Vec<ModbusMeasure>{
         let sys_time = SystemTime::now()
             .duration_since(UNIX_EPOCH);
         match sys_time {
             Ok(duration) => {
                 let ts = duration.as_secs() as i64;
                 self.values.iter()
-                    .map( |value| value.get_value(&reg_list, ts))
+                    .map( |value| value.get_value(reg_list, ts))
                     .collect::<Vec<ModbusMeasure>>()
             }
             Err(_) => {

@@ -34,16 +34,16 @@ pub struct ComaShift {
 impl ValueInterface for ComaShift {
     fn init(&mut self, settings: String, id: i32, logging: bool) -> Vec<i32> {
         let setting = serde_json::from_str(settings.as_str());
-        let init_data: ComaShiftSerde;
 
-        match setting {
-            Ok(s) => init_data = s,
+        let init_data: ComaShiftSerde = match setting {
+            Ok(s) => s,
             Err(e) => {
                 let msg = format!("Помилкка десеріалізації плагіну ComaShift: \n{:?}\n{settings}", e);
                 printers::err(msg);
                 return Vec::new();
             }
-        }
+        };
+
         self.id = id;
         self.tag = Arc::new(init_data.tag);
         self.addr = init_data.addr;
@@ -53,10 +53,10 @@ impl ValueInterface for ComaShift {
 
         vec![self.addr]
     }
-    fn find_your_registers(&mut self, dataset: &Vec<i32>) -> bool {
+    fn find_your_registers(&mut self, dataset: &[i32]) -> bool {
         if self.is_init {return false};
-        for i in 0..dataset.len() {
-            if dataset[i] == self.addr {
+        for (i, &item) in dataset.iter().enumerate() {
+            if item == self.addr {
                 self.pos_in_list = i;
                 self.is_init = true;
                 return true;
@@ -68,7 +68,7 @@ impl ValueInterface for ComaShift {
     fn get_id(&self) -> i32 {
         self.id
     }
-    fn get_value(&self, reg_list: &Vec<u16>, timestamp: i64) -> ModbusMeasure {
+    fn get_value(&self, reg_list: &[u16], timestamp: i64) -> ModbusMeasure {
         if reg_list.len() <= self.pos_in_list { // заглушка для тестування, це ж довбаний раст
             panic!("Паніка при декодуванні значення {}, вихід за межі вектору", &self.tag);
         }

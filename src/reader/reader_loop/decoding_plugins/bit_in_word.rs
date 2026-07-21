@@ -31,16 +31,14 @@ impl ValueInterface for BitInWord {
 
         let setting = serde_json::from_str(settings.as_str());
 
-        let init_data: BitInWordSerde;
-
-        match setting {
-            Ok(s) => init_data = s,
+        let init_data: BitInWordSerde = match setting {
+            Ok(s) => s,
             Err(e) => {
                 let msg = format!("Помилкка десеріалізації плагіну BitInWord: \n{:?}\n{settings}", e);
                 printers::err(msg);
                 return Vec::new();
             }
-        }
+        };
         self.id = id;
         self.tag = Arc::new(init_data.tag);
         self.addr = init_data.addr;
@@ -50,11 +48,10 @@ impl ValueInterface for BitInWord {
 
         vec![self.addr]
     }
-    fn find_your_registers(&mut self, dataset: &Vec<i32>) -> bool {
+    fn find_your_registers(&mut self, dataset: &[i32]) -> bool {
         if self.is_init {return false};
-
-        for i in 0..dataset.len() {
-            if dataset[i] == self.addr {
+        for (i, &value) in dataset.iter().enumerate() {
+            if value == self.addr {
                 self.is_init = true;
                 self.pos_in_list = i;
                 return true;
@@ -66,7 +63,7 @@ impl ValueInterface for BitInWord {
     fn get_id(&self) -> i32 {
         self.id
     }
-    fn get_value(&self, reg_list: &Vec<u16>, timestamp: i64) -> ModbusMeasure {
+    fn get_value(&self, reg_list: &[u16], timestamp: i64) -> ModbusMeasure {
         if reg_list.len() <= self.pos_in_list { // заглушка для тестування, це ж довбаний раст
             panic!("Паніка при декодуванні значення {}, вихід за межі вектору", &self.tag);
         }

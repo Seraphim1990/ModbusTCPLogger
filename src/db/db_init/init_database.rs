@@ -67,7 +67,7 @@ CONSTRAINT `value_units_ibfk_2` FOREIGN KEY (`decoding_type`) REFERENCES `decodi
   CONSTRAINT `value_units_ibfk_2` FOREIGN KEY (`decoding_type`) REFERENCES `decoding_type` (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=121 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     "#;
-    send_query(query, &pool, "value_units").await
+    send_query(query, pool, "value_units").await
 }
 async fn init_user_subgroups(pool: &Pool<MySql>) -> Result<(), String>{
     /*
@@ -91,7 +91,7 @@ CONSTRAINT `fk_subgroups_group` FOREIGN KEY (`group_id`) REFERENCES `user_groups
   CONSTRAINT `fk_subgroups_group` FOREIGN KEY (`group_id`) REFERENCES `user_groups` (`id`) ON DELETE CASCADE
     )ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     "#;
-    send_query(query, &pool, "user_subgroups").await
+    send_query(query, pool, "user_subgroups").await
 }
 async fn init_user_groups(pool: &Pool<MySql>) -> Result<(), String>{
     /*
@@ -109,7 +109,7 @@ PRIMARY KEY (`id`)
   PRIMARY KEY (`id`)
    ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     "#;
-    send_query(query, &pool, "user_groups").await
+    send_query(query, pool, "user_groups").await
 }
 async fn init_user_group_access(pool: &Pool<MySql>) -> Result<(), String>{
     /*
@@ -131,7 +131,7 @@ CONSTRAINT `fk_uga_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DE
   CONSTRAINT `fk_uga_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     "#;
-    send_query(query, &pool, "user_group_access").await
+    send_query(query, pool, "user_group_access").await
 }
 async fn init_subgroup_values(pool: &Pool<MySql>) -> Result<(), String>{
     /*
@@ -153,7 +153,7 @@ async fn init_subgroup_values(pool: &Pool<MySql>) -> Result<(), String>{
   CONSTRAINT `fk_sgv_value` FOREIGN KEY (`value_unit_id`) REFERENCES `value_units` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     "#;
-    send_query(query, &pool, "subgroup_values").await
+    send_query(query, pool, "subgroup_values").await
 }
 async fn init_nodes(pool: &Pool<MySql>) -> Result<(), String>{
     /*
@@ -173,7 +173,7 @@ PRIMARY KEY (`id`)
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     "#;
-    send_query(query, &pool, "nodes").await
+    send_query(query, pool, "nodes").await
 }
 
 async fn init_measures(pool: &Pool<MySql>) -> Result<(), String>{
@@ -198,7 +198,7 @@ CONSTRAINT `measures_ibfk_1` FOREIGN KEY (`value_id`) REFERENCES `value_units` (
   CONSTRAINT `measures_ibfk_1` FOREIGN KEY (`value_id`) REFERENCES `value_units` (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1009 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     "#;
-    send_query(query, &pool, "measures").await
+    send_query(query, pool, "measures").await
 }
 async fn init_devices(pool: &Pool<MySql>) -> Result<(), String>{
     /*
@@ -238,7 +238,7 @@ async fn init_devices(pool: &Pool<MySql>) -> Result<(), String>{
   CONSTRAINT `devices_ibfk_1` FOREIGN KEY (`parent_node_id`) REFERENCES `nodes` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB AUTO_INCREMENT=27 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     "#;
-    send_query(query, &pool, "devices").await
+    send_query(query, pool, "devices").await
 }
 
 async fn init_decoding_type(pool: &Pool<MySql>) -> Result<(), String>{
@@ -255,13 +255,13 @@ PRIMARY KEY (`id`)
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     "#;
-    send_query(query, &pool, "decoding_type").await?;
+    send_query(query, pool, "decoding_type").await?;
 
     /*
     INSERT INTO `decoding_type` (`id`, `decoding_name`) VALUES (1, 'ComaShift'), (2, 'SatecDoubleRegistersInt32'), (3, 'BitInWord')
      */
     let query = r#"INSERT INTO `decoding_type` (`id`, `decoding_name`) VALUES (1, 'ComaShift'), (2, 'SatecDoubleRegistersInt32'), (3, 'BitInWord')"#;
-    send_query(query, &pool, "Додавання типів декодування").await
+    send_query(query, pool, "Додавання типів декодування").await
 }
 
 async fn init_users(pool: &Pool<MySql>) -> Result<(), String> {
@@ -290,12 +290,12 @@ async fn init_users(pool: &Pool<MySql>) -> Result<(), String> {
   KEY `fk_users_role` (`role_id`),
   CONSTRAINT `fk_users_role` FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;"#;
-    send_query(query, &pool, "users").await?;
+    send_query(query, pool, "users").await?;
 
     let query = "INSERT IGNORE INTO `users` (`username`, `password_hash`, `role_id`, `is_active`)
         VALUES ('Harold_Finch', 'L0ng_@dmin_P@ssw0rd!', 1, 1);";
 
-    send_query(query, &pool, "Додавання першого адміна").await // створення першого адміна
+    send_query(query, pool, "Додавання першого адміна").await // створення першого адміна
 }
 async fn init_roles(pool: &Pool<MySql>) -> Result<(), String> {
     /*
@@ -313,7 +313,7 @@ async fn init_roles(pool: &Pool<MySql>) -> Result<(), String> {
   UNIQUE KEY `role_name` (`role_name`)
 ) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     "#;
-    send_query(query, &pool, "roles").await?;
+    send_query(query, pool, "roles").await?;
     /*
 INSERT INTO `roles` (`role_name`) VALUES ('admin'), ('superuser'), ('user'), ('servise')
 ON DUPLICATE KEY UPDATE `role_name`=`role_name`;
@@ -321,7 +321,7 @@ ON DUPLICATE KEY UPDATE `role_name`=`role_name`;
     let query = r#"INSERT INTO `roles` (`id`, `role_name`)
     VALUES ('1', 'admin'), ('2', 'superuser'), ('3','user'), ('4','servise')
     ON DUPLICATE KEY UPDATE `role_name` = `role_name`;"#;
-    send_query(query, &pool, "Створення ролей").await
+    send_query(query, pool, "Створення ролей").await
 }
 
 async fn init_refresh_tokens(pool: &Pool<MySql>) -> Result<(), String> {
@@ -348,8 +348,8 @@ async fn init_refresh_tokens(pool: &Pool<MySql>) -> Result<(), String> {
 }
 
 async fn send_query(query: &str, pool: &Pool<MySql>, msg: &str) -> Result<(), String> {
-    sqlx::query(&query).execute(pool).await.map_err(|e| {
-        format!("Помилка бази даних:{}\n {}",msg, e.to_string())
+    sqlx::query(query).execute(pool).await.map_err(|e| {
+        format!("Помилка бази даних:{}\n {}",msg, e)
     })?;
     Ok(())
 }

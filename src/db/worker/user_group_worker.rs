@@ -18,10 +18,14 @@ pub fn group_command(pool: &Pool<MySql>, command: Command){
                 let group = group.clone();
                 tokio::spawn(async move {
                    if let GroupCommand::Create(group) = group.deref() {
+                       run_db_with_timeout(create_group(&pool, group), 5, tx, "GroupCommand::Create").await;
+                       /*
                        let res = create_group(&pool, group).await;
                        if tx.send(res).is_err() {
                            printers::err("Помилка відправки калбеку GroupCommand::Create".to_string())
                        }
+
+                        */
                    }
                 });
             },
@@ -29,10 +33,14 @@ pub fn group_command(pool: &Pool<MySql>, command: Command){
                 let group = group.clone();
                 tokio::spawn(async move {
                     if let GroupCommand::Update(group) = group.deref() {
+                        run_db_with_timeout(update_group(&pool, group), 5, tx, "GroupCommand::Update").await;
+                        /*
                         let res = update_group(&pool, group).await;
                         if tx.send(res).is_err() {
                             printers::err("Помилка відправки калбеку GroupCommand::Update".to_string())
                         }
+
+                         */
                     }
                 });
             },
@@ -40,10 +48,14 @@ pub fn group_command(pool: &Pool<MySql>, command: Command){
                 let group = group.clone();
                 tokio::spawn(async move {
                     if let GroupCommand::Delete(group) = group.deref() {
+                        run_db_with_timeout(delete_group(&pool, group.id), 5, tx, "GroupCommand::Delete").await;
+                        /*
                         let res = delete_group(&pool, group.id).await;
                         if tx.send(res).is_err() {
                             printers::err("Помилка відправки калбеку GroupCommand::Delete".to_string())
                         }
+
+                         */
                     }
                 });
             },
@@ -57,37 +69,53 @@ pub fn groups_get(pool: &Pool<MySql>, request: GroupRequest){
         GroupRequest::GetById(request) => {
             tokio::spawn(async move {
                 let tx = request.request_channel;
+                run_db_with_timeout(get_group_by_id(&pool, request.group_id), 3, tx, "GroupRequest::GetById").await;
+                /*
                 let res = get_group_by_id(&pool, request.group_id).await;
                 if tx.send(res).is_err(){
                     printers::err("Помилка відправки калбеку GroupRequest::GetById".to_string())
                 }
+
+                 */
             });
         },
         GroupRequest::GetAll(request) => {
             tokio::spawn(async move {
                let tx = request.request_channel;
+                run_db_with_timeout(get_all_groups(&pool), 3, tx, "GroupRequest::GetAll").await;
+                /*
                 let res = get_all_groups(&pool).await;
                 if tx.send(res).is_err() {
                     printers::err("Помилка відправки калбеку GroupRequest::GetAll".to_string())
                 }
+
+                 */
             });
         },
         GroupRequest::GetByUserId(request) => {
             tokio::spawn(async move {
                 let tx = request.request_channel;
+                run_db_with_timeout(get_group_by_user_id(&pool, request.user_id), 3, tx, "GroupRequest::GetByUserId").await;
+                /*
                 let res = get_group_by_user_id(&pool, request.user_id).await;
                 if tx.send(res).is_err() {
                     printers::err("Помилка відправки калбеку GroupRequest::GetByUserId".to_string())
                 }
+
+                 */
             });
         },
         GroupRequest::GetForUi(request) => {
             tokio::spawn(async move {
                 let tx = request.request_channel;
+                run_db_with_timeout(ui_get_group(&pool, request.id), 3, tx, "GroupRequest::GetForUi").await;
+                /*
                 let res = ui_get_group(&pool, request.id).await;
                 if tx.send(res).is_err() {
                     printers::err("Помилка відправки калбеку GroupRequest::GetForUi".to_string())
                 }
+
+                 */
             });
         }
     }
@@ -173,6 +201,7 @@ async fn delete_group(pool: &Pool<MySql>, group_id: i32) -> Result<(), String> {
 // UI block
 
 use crate::db::schemas::value_unit::ValueRead;
+use crate::db::worker::gen_fn::run_db_with_timeout;
 /*
 async fn ui_get_group(pool: &Pool<MySql>, id: i32) -> Result<Option<UiUserGroupRead>, ()> {
 
@@ -238,8 +267,7 @@ pub async fn ui_get_group(
         subgroups.iter().map(|x| x.id).collect();
 
     let placeholders =
-        std::iter::repeat("?")
-            .take(subgroup_ids.len())
+        std::iter::repeat_n("?", subgroup_ids.len())
             .collect::<Vec<_>>()
             .join(",");
 

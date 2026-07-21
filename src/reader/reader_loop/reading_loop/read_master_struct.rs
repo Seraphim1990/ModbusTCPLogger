@@ -8,7 +8,7 @@ use tokio_modbus::client::{tcp, Context};
 use tokio_modbus::{Error, ExceptionCode, ProtocolError, Slave};
 use tokio_modbus::prelude::{Reader, SlaveContext};
 use crate::messages::main_msg::MainMsg;
-use crate::reader::reader_loop::modbus_device::modbus_device::ModbusDeviceUnit;
+use crate::reader::reader_loop::modbus_device::modbus_device_unit::ModbusDeviceUnit;
 
 use crate::db::schemas::{
     node::NodeRead,
@@ -82,36 +82,24 @@ impl ReadMaster{
 
     pub fn when_next(&mut self) -> u64 {
         let ts = Self::get_time();
-        if self.devices.len() == 0 {
-            return 1000; // пристроїв не знайдено, спробуємо через секунду, може шото з команд прийде...
+        if self.devices.is_empty() {
+            return 60000; // пристроїв не знайдено, спробуємо через секунду, може шото з команд прийде...
         };
         if self.ctx.is_none() {
-            if let Some(next) = self.last_connecting_time.checked_sub(ts) {
-                return next
-            } else {
-                return 0
-            }
+            return self.last_connecting_time.saturating_sub(ts);
         };
 
-        if let Some(next) = self.when_next_device().checked_sub(ts) {
-            next
-        } else {
-            0
-        }
+        self.when_next_device().saturating_sub(ts)
     }
 
     pub async fn tick(&mut self) {
-        if self.devices.len() == 0 {
-            if!(self.create_devices().await) {
-                return; // пристроїв не знайдено, спробуємо через секунду, може шото з команд прийде...
-            };
-        };
+        if self.devices.is_empty() && !(self.create_devices().await) {
+            return;
+        }
         // пристрої є, шо там з контекстом?
-        if self.ctx.is_none() {
-            if !self.create_context().await{
-                return; // шото не то с контекстом, попробуємо наступного разу...
-            }
-        };
+        if self.ctx.is_none() && !(self.create_context().await){
+            return;
+        }
 
         self.read().await;
     }
@@ -227,8 +215,10 @@ impl ReadMaster{
 
         }
         if is_increase_timeout {
-            printers::warn(format!("Збільшено таймаут для пристрою id: {}, адреса: {}, нода: {}", device.id(), device.address(), self.ip.clone()));
             device.increase_timeout();
+            printers::warn(format!("Збільшено таймаут для пристрою id: {}, адреса: {}, нода: {}, таймаут: {}", device.id(), device.address(), self.ip.clone(), device.timeout()));
+            self.disconnecting().await; // токіо модбас парашна бібліотека, приям по усим фронтам!!!!
+            return;
         }
 
         let read_report = match failed_steps {
@@ -312,7 +302,7 @@ impl ReadMaster{
     async fn create_devices(&mut self) -> bool { // true = devices was created
         self.devices.clear();
         let devices = self.get_devises().await;
-        if devices.len() == 0 {
+        if devices.is_empty() {
             return false;
         }
         let mut devices_units = Vec::with_capacity(devices.len());
@@ -388,7 +378,7 @@ impl ReadMaster{
             match send_res {
                 Ok(_) => {},
                 Err(e) => {
-                    let msg = format!("Помилка відправки повідомлення до контролера при створенні пристроїв для {}\nErr: {}", &self.ip, e.to_string());
+                    let msg = format!("Помилка відправки повідомлення до контролера при створенні пристроїв для {}\nErr: {}", &self.ip, e);
                     printers::err(msg);
                 }
             }
@@ -456,7 +446,7 @@ impl ReadMaster{
     }
 
     async fn disconnecting(&mut self) {
-        self.last_connecting_time = Self::get_time() + 60000;
+        self.last_connecting_time = Self::get_time() + 30000;
         self.send_connecting_msg(NodeEventType::UnConnected).await;
         printers::err(format!("Закрито з'єднання ip: {}", &self.ip));
         self.ctx = None
@@ -479,7 +469,7 @@ impl ReadMaster{
         match send_res {
             Ok(_) => {},
             Err(e) => {
-                let msg = format!("Помилка відправки повідомлення до контролера про початок створення {}\nErr: {}", &self.ip, e.to_string());
+                let msg = format!("Помилка відправки повідомлення до контролера про початок створення {}\nErr: {}", &self.ip, e);
                 printers::err(msg);
             }
         }

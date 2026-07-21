@@ -18,15 +18,15 @@ use crate::messages::commands::groups::GroupCommand;
 
 pub fn user_group_router() -> Router<AppState> {
     Router::new()
-        .route("/user_group/get_by_user_id/:id", get(get_user_groups))
+        .route("/user_group/get_by_user_id/{id}", get(get_user_groups))
         .route("/user_group/create", post(create_group))
-        .route("/user_group/update/:id", put(update_group))
-        .route("/user_group/delete/:id", delete(delete_group))
-        .route("/user_group/get_by_id/:id", get(get_group_by_id))
+        .route("/user_group/update/{id}", put(update_group))
+        .route("/user_group/delete/{id}", delete(delete_group))
+        .route("/user_group/get_by_id/{id}", get(get_group_by_id))
         .route_layer(middleware::from_fn(admin_middleware))
 
         .route("/user_group/all", get(get_all_groups))
-        .route("/user_group/ui/:group_id", get(ui_get_by_group_id))
+        .route("/user_group/ui/{group_id}", get(ui_get_by_group_id))
         .route("/user_group/me", get(me))
 }
 

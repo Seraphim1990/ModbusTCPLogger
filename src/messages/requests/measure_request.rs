@@ -2,6 +2,7 @@ use tokio::sync::oneshot;
 
 
 #[derive(Clone, Default, sqlx::FromRow, serde::Serialize, serde::Deserialize, Debug)]
+#[derive(PartialEq)]
 pub struct HashedValue {
     pub val: f64,
     pub timestamp: i64,

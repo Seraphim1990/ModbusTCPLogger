@@ -5,6 +5,7 @@ use crate::logger::printers;
 use sqlx::{FromRow, MySql, Pool};
 use tokio::sync::mpsc;
 use crate::db::schemas::node::NodeRead;
+use crate::db::worker::gen_fn::run_db_with_timeout;
 use crate::messages::commands::command::{Command, CommandType};
 use crate::messages::commands::value::ValueCommand;
 use crate::messages::config_event::{ConfigEvent, ConfigEventType};
@@ -12,7 +13,6 @@ use crate::reader::reader_loop::decoding_plugins::plugin_loader::check_json;
 
 pub fn command_value(pool: &Pool<MySql>, command: Command, tx_to_reader: mpsc::Sender<ConfigEvent>) {
     let pool = pool.clone();
-
     if let CommandType::ValueCommand(value) = command.cmd {
         let tx = command.request_channel;
         match value.as_ref() {
@@ -20,11 +20,15 @@ pub fn command_value(pool: &Pool<MySql>, command: Command, tx_to_reader: mpsc::S
                 let value = value.clone();
                 tokio::spawn(async move {
                     if let ValueCommand::Create(value) = value.as_ref() {
+                        run_db_with_timeout(create_value(&pool, value, tx_to_reader), 5, tx, "ValueCommand::Create").await;
+                        /*
                         let res = create_value(&pool, value, tx_to_reader).await;
                         if tx.send(res).is_err() {
                             let msg = "Помилка відправки калбеку для ValueCommand::Create".to_string();
                             printers::err(msg);
                         }
+
+                         */
                     }
                 });
             },
@@ -32,11 +36,15 @@ pub fn command_value(pool: &Pool<MySql>, command: Command, tx_to_reader: mpsc::S
                 let value = value.clone();
                 tokio::spawn(async move {
                    if let ValueCommand::Delete(value) = value.as_ref() {
+                       run_db_with_timeout(delete_value(&pool, value, tx_to_reader), 5, tx, "ValueCommand::Delete").await;
+                       /*
                        let res = delete_value(&pool, value, tx_to_reader).await;
                        if tx.send(res).is_err() {
                            let msg = format!("Помилка відправки калбеку для ValueCommand::Delete id: {}", value.id);
                            printers::err(msg);
                        }
+
+                        */
                    }
                 });
             },
@@ -44,11 +52,15 @@ pub fn command_value(pool: &Pool<MySql>, command: Command, tx_to_reader: mpsc::S
                 let value = value.clone();
                 tokio::spawn(async move {
                     if let ValueCommand::Update(value) = value.as_ref() {
+                        run_db_with_timeout(value_update(&pool, value, tx_to_reader), 5, tx, "ValueCommand::Update").await;
+                        /*
                         let res = value_update(&pool, value, tx_to_reader).await;
                         if tx.send(res).is_err() {
                             let msg = format!("Помилка відправки калбеку для ValueCommand::Update id: {}", value.id);
                             printers::err(msg);
                         }
+
+                         */
                     }
                 });
             },
@@ -62,39 +74,55 @@ pub fn value_get(pool: &Pool<MySql>, request: ValueRequest) {
         ValueRequest::GetValue(request) => {
             tokio::spawn(async move {
                 let tx = request.request_channel;
+                run_db_with_timeout(get_value_by_id(&pool, request.id), 3, tx, "ValueRequest::GetValue").await;
+                /*
                 let res = get_value_by_id(&pool, request.id).await;
                 if tx.send(res).is_err() {
                     let msg = format!("Помилка відправки ValueRequest::GetValue {}", request.id);
                     printers::warn(msg);
                 }
+
+                 */
             });
         },
         ValueRequest::GetByDeviceId(request) => {
             tokio::spawn(async move {
                 let tx = request.request_channel;
+                run_db_with_timeout(get_value_by_device_id(&pool, request.device_id), 3, tx, "ValueRequest::GetByDeviceId").await;
+                /*
                 let res = get_value_by_device_id(&pool, request.device_id).await;
                 if tx.send(res).is_err() {
                     let msg = format!("Помилка відправки ValueRequest::GetByDeviceId {}", request.device_id);
                     printers::err(msg);
                 }
+
+                 */
             });
         },
         ValueRequest::GetAll(request) => {
             tokio::spawn(async move {
                 let tx = request.request_channel;
+                run_db_with_timeout(get_all_values(&pool), 3, tx, "ValueRequest::GetAll").await;
+                /*
                 let res = get_all_values(&pool).await;
                 if tx.send(res).is_err() {
                     printers::err(String::from("Помилка відправки ValueRequest::GetAll"));
                 }
+
+                 */
             });
         },
         ValueRequest::GetLoggingOnly(request) => {
             tokio::spawn(async move {
                 let tx = request.request_channel;
+                run_db_with_timeout(get_logging_only(&pool), 3, tx, "ValueRequest::GetLoggingOnly").await;
+                /*
                 let res = get_logging_only(&pool).await;
                 if tx.send(res).is_err() {
                     printers::err(String::from("Помилка відправки ValueRequest::GetLoggingOnly"));
                 }
+
+                 */
             });
         }
     }
@@ -347,15 +375,20 @@ async fn value_update(pool: &Pool<MySql>, value: &ValueUpdate, tx_to_reader: mps
             printers::err(msg.clone());
             msg
         })?;
-    if val.is_none() {
+    let val = if let Some(val) = val {
+        val
+    } else {
         let msg = format!("Запис (Value) не знайдено, id: {}", value.id);
         printers::err(msg.clone());
         return Err(msg)
-    }
+    };
 
-    if value.settings.is_some() {
-        let decoding_type = if value.decoding_type.is_some() {value.decoding_type.unwrap()} else {val.unwrap().decoding_type};
-        check_json(decoding_type, &value.settings.clone().unwrap().to_string())?;
+    if let Some(setting) = &value.settings {
+        let decoding_type = if let Some (decoding_type) = value.decoding_type
+        {decoding_type}
+        else { val.decoding_type };
+
+        check_json(decoding_type, &setting.to_string())?;
     }
 
     if let Some(parent_id) = value.parent_device_id {  // може бути bit_in_word, так що унікальність регістра не потрібна
@@ -391,7 +424,7 @@ async fn value_update(pool: &Pool<MySql>, value: &ValueUpdate, tx_to_reader: mps
         .bind(&value.value_name)
         .bind(&value.value_tag)
         .bind(&value.description)
-        .bind(&value.decoding_type)
+        .bind(value.decoding_type)
         .bind(&value.settings) // Прямий біндінг Option<Value>, sqlx розбереться самостійно
         .bind(value.is_logging)
         .bind(value.id)
@@ -418,8 +451,8 @@ async fn value_update(pool: &Pool<MySql>, value: &ValueUpdate, tx_to_reader: mps
         printers::warn("Помилка отримання ноди для оновлення".to_string());
     };
 
-    if value.parent_device_id.is_some() {
-        if let Ok(node)= get_node_directly_by_device_id(pool, value.parent_device_id.unwrap()).await {
+    if let Some(dev_id) = value.parent_device_id {
+        if let Ok(node)= get_node_directly_by_device_id(pool, dev_id).await {
             if new_node_id != node.id {
                 let change_config = ConfigEvent {
                     event_type: ConfigEventType::Update,

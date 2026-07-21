@@ -104,7 +104,7 @@ async fn create_new_node(to_node_tx: &broadcast::Sender<ConfigEvent>,
         }
 
         if let Ok(Ok(Some(node_read))) = rx.await {
-            let _ = tokio::spawn(async move {
+            tokio::spawn(async move {
                 node_loop(from_node_tx_clone, node_subscribe, node_read).await;
             });
             break;
@@ -145,7 +145,7 @@ async fn init_nodes(to_controller: &mpsc::Sender<MainMsg>) -> (broadcast::Sender
                 let from_node_tx_clone = from_node_tx.clone();
                 let node_subscribe = to_node_tx.subscribe();
 
-                let _ = tokio::spawn(async move {
+                tokio::spawn(async move {
                     node_loop(from_node_tx_clone, node_subscribe, node).await;
                 });
             }

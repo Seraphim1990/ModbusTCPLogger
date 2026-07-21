@@ -23,9 +23,9 @@ pub fn users_router() -> Router<AppState> {
     Router::new()
         .route("/users/create", post(create_user))
         .route("/users/get_all", get(get_all_users))
-        .route("/users/get_by_id/:id", get(get_user_by_id))
-        .route("/users/update/:id", put(update_user))
-        .route("/users/delete/:id", delete(delete_user))
+        .route("/users/get_by_id/{id}", get(get_user_by_id))
+        .route("/users/update/{id}", put(update_user))
+        .route("/users/delete/{id}", delete(delete_user))
         .route_layer(middleware::from_fn(admin_middleware))
 }
 

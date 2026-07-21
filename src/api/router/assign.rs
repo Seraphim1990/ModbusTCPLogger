@@ -17,8 +17,8 @@ pub fn assign_router() -> Router<AppState> {
     Router::new()
         .route("/assign/group", post(create_assign_group))
         .route("/assign/values", post(create_assign_values))
-        .route("/assign/clean/users/:user_id", delete(clean_group_assignments))
-        .route("/assign/clean/subgroups/:subgroup_id", delete(clean_values_assignments))
+        .route("/assign/clean/users/{user_id}", delete(clean_group_assignments))
+        .route("/assign/clean/subgroups/{subgroup_id}", delete(clean_values_assignments))
         .route_layer(middleware::from_fn(admin_middleware))
 }
 
@@ -71,7 +71,7 @@ async fn clean_group_assignments(State(state): State<AppState>, Path(user_id): P
     let assign_cmd = CommandType::AssignGroupsAndValuesCommand(
         Arc::new(
             AssignGroupsAndValuesCommand::Groups(AssignGroupsCommand {
-                user_id: user_id,
+                user_id,
                 group_ids: Vec::new(),
             })
         )
@@ -92,7 +92,7 @@ async fn clean_values_assignments(State(state): State<AppState>, Path(subgroup_i
     let assign_cmd = CommandType::AssignGroupsAndValuesCommand(
         Arc::new(
             AssignGroupsAndValuesCommand::Values(AssignValuesCommand{
-                subgroup_id: subgroup_id,
+                subgroup_id,
                 value_unit_ids: Vec::new(),
             })
         )

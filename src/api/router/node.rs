@@ -24,12 +24,12 @@ use crate::api::router::middlewares::admin_middleware;
 pub fn node_router() -> Router<AppState> {
     Router::new()
         .route("/nodes/get_all", get(get_nodes))
-        .route("/nodes/get_node_by_ip/:ip", get(get_node_by_ip))
+        .route("/nodes/get_node_by_ip/{ip}", get(get_node_by_ip))
         .route("/nodes/create", post(create_node))
-        .route("/nodes/update/:id", put(update_node))
-        .route("/nodes/delete/:id", delete(delete_node))
+        .route("/nodes/update/{id}", put(update_node))
+        .route("/nodes/delete/{id}", delete(delete_node))
         .route_layer(middleware::from_fn(admin_middleware))
-        .route("/nodes/:id", get(get_node_by_id))
+        .route("/nodes/{id}", get(get_node_by_id))
 }
 
 pub async fn get_nodes(State(state): State<AppState>) -> impl IntoResponse {
@@ -94,24 +94,22 @@ pub async fn create_node(State(state): State<AppState>, Json(payload): Json<Node
         },
         Ok(Ok(None)) => {},
     }
-
-    let port = if let Some(port) = payload.port {port} else {502};
-
-        if port < 0 || port > 65535 {
-            let msg = format!("Помилка створення ноди:{}, не валідний порт", port);
-            printers::err(msg.clone());
-            return (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
-        }
+    let port = payload.port.unwrap_or(502);
+    if !(0..=65535).contains(&port) {
+        let msg = format!("Помилка створення ноди:{}, не валідний порт", port);
+        printers::err(msg.clone());
+        return (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
+    }
 
     let (tx_callback, rx_callback) = oneshot::channel();
 
     let create_node_cmd = Arc::new(  // ужос, блядь, з цими каналами...
-        NodeCommand::Create(
-            NodeCreate {ip: payload.ip.clone(),
-                    port: Some(port),
-                    description: payload.description.clone(),
-                }
-        )
+                                     NodeCommand::Create(
+                                         NodeCreate {ip: payload.ip.clone(),
+                                             port: Some(port),
+                                             description: payload.description.clone(),
+                                         }
+                                     )
     );
 
     let cmd = MainMsg::Command(
@@ -175,12 +173,10 @@ pub async fn update_node(
         }
     }
 
-    if let Some(port) = payload.port {
-        if !(0..=65535).contains(&port) {
-            let msg = format!("Помилка оновлення ноди: {}, не валідний порт", port);
-            printers::err(msg.clone());
-            return (StatusCode::BAD_REQUEST, msg).into_response();
-        }
+    if let Some(port) = payload.port && !(0..=65535).contains(&port){
+        let msg = format!("Помилка оновлення ноди: {}, не валідний порт", port);
+        printers::err(msg.clone());
+        return (StatusCode::BAD_REQUEST, msg).into_response();
     }
 
     // 3. ПЕРЕВІРКА IP: Якщо клієнт хоче змінити IP, перевіряємо його валідність та унікальність
@@ -279,7 +275,7 @@ pub async fn delete_node(State(state): State<AppState>, Path(id): Path<u32>) -> 
         }
     }
 }
-
+#[allow(clippy::result_large_err)]
 fn check_ip(ip: &String) -> Result<(), impl IntoResponse> {
     if ip.parse::<IpAddr>().is_err() {
         let msg = format!("Невірний ip: {}", ip);

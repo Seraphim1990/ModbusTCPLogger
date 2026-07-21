@@ -8,7 +8,7 @@ use crate::messages::commands::{
         AssignValuesCommand
     },
 };
-use crate::logger::printers;
+use crate::db::worker::gen_fn::run_db_with_timeout;
 
 pub fn command_assign(pool: &Pool<MySql>, command: Command) {
     let pool = pool.clone();
@@ -19,10 +19,20 @@ pub fn command_assign(pool: &Pool<MySql>, command: Command) {
                 tokio::spawn(async move {
                     if let AssignGroupsAndValuesCommand::Groups(assign) = assign.deref() {
                         let tx = command.request_channel;
-                        let res = assign_groups_to_user(&pool, assign).await;
-                        if tx.send(res).is_err() {
-                            printers::err("Помилка повернення калбеку AssignGroupsAndValuesCommand::Groups".to_string());
+                        run_db_with_timeout(assign_groups_to_user(&pool, assign), 5, tx, "AssignGroupsAndValuesCommand::Groups").await;
+                        /*
+                        match timeout(Duration::from_secs(2), assign_groups_to_user(&pool, assign)).await {
+                            Ok(res) => {
+                                if tx.send(res).is_err() {
+                                    printers::err("Помилка повернення калбеку AssignGroupsAndValuesCommand::Groups".to_string());
+                                }
+                            }
+                            Err(_) => {
+                                printers::err("таймаут AssignGroupsAndValuesCommand::Groups".to_string());
+                            }
                         }
+
+                         */
                     }
                 });
             },
@@ -31,10 +41,14 @@ pub fn command_assign(pool: &Pool<MySql>, command: Command) {
                 tokio::spawn(async move {
                     if let AssignGroupsAndValuesCommand::Values(assign) = assign.deref() {
                         let tx = command.request_channel;
+                        run_db_with_timeout(assign_values_to_subgroup(&pool, assign), 5, tx, "AssignGroupsAndValuesCommand::Values").await;
+                        /*
                         let res = assign_values_to_subgroup(&pool, assign).await;
                         if tx.send(res).is_err() {
                             printers::err("Помилка повернення калбеку AssignGroupsAndValuesCommand::Values".to_string());
                         }
+
+                         */
                     }
                 });
             }

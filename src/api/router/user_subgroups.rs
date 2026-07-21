@@ -23,14 +23,14 @@ use crate::messages::commands::sub_groups::SubGroupCommand;
 pub fn user_subgroup_router() -> Router<AppState> {
     Router::new()
         .route("/sub_groups/create", post(create_sub_group))
-        .route("/sub_groups/update/:id", put(update_sub_group))
-        .route("/sub_groups/delete/:id", delete(delete_sub_group))
+        .route("/sub_groups/update/{id}", put(update_sub_group))
+        .route("/sub_groups/delete/{id}", delete(delete_sub_group))
         .route("/sub_groups/get_all", get(get_all_sub_groups))
-        .route("/sub_groups/get_by_id/:id", get(get_sub_group_by_id))
-        .route("/sub_groups/get_by_group_id/:group_id", get(get_sub_groups_by_group_id))
+        .route("/sub_groups/get_by_id/{id}", get(get_sub_group_by_id))
+        .route("/sub_groups/get_by_group_id/{group_id}", get(get_sub_groups_by_group_id))
         .route_layer(middleware::from_fn(admin_middleware))
         
-        .route("/sub_groups/ui/assigns/:group_id", get(ui_get_subgroups_assign))
+        .route("/sub_groups/ui/assigns/{group_id}", get(ui_get_subgroups_assign))
 }
 
 async fn get_all_sub_groups(State(state): State<AppState>) -> impl IntoResponse {

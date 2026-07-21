@@ -128,11 +128,12 @@ impl PollValueIterator {
 
             let addr = vec!(reg);
             let mut inexes = Vec::new();
-            for i in 0..values.len() {
-                if values[i].find_your_registers(&addr) {
+            for (i, val) in values.iter_mut().enumerate() {
+                if val.find_your_registers(&addr) {
                     inexes.push(i);
                 }
             }
+
             inexes.sort();
             inexes.reverse();
             for i in inexes {
@@ -163,8 +164,8 @@ impl PollValueIterator {
         for reg in &registers {
             let mut step = ReadStep::new(*reg.first().unwrap(), reg.len() as i32, reg_type);
             let mut inexes = Vec::new();
-            for i in 0..values.len() {
-                if values[i].find_your_registers(&reg) {
+            for (i, val) in values.iter_mut().enumerate() {
+                if val.find_your_registers(reg) {
                     inexes.push(i);
                 }
             }

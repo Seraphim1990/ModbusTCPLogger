@@ -28,7 +28,7 @@ impl ModbusDeviceUnit {
 
         ModbusDeviceUnit {
             id: setting.id,
-            _name: setting.device_name.unwrap_or_else(|| "".to_string()),
+            _name: setting.device_name.unwrap_or_default(),
             address: setting.address,
             timeout: setting.timeout as u64,
             time_for_recall: setting.time_for_recall,

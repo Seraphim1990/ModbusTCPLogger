@@ -14,7 +14,6 @@ pub enum Request{
     GetNode(NodeRequest),
     GetDevice(DeviceRequest),
     GetValue(ValueRequest),
-    GetDecodingType,
     GetMeasure(MeasureRequest),
     GetUser(UserRequest),
     GetGroup(GroupRequest),

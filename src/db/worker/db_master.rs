@@ -23,7 +23,7 @@ pub async fn run_db_master(rx: mpsc::Receiver<MainMsg>, tx_to_reader: mpsc::Send
     printers::event(String::from("Старт воркера бази даних"));
 
     let mut rx = rx;
-    let pool = init_db(5).await;
+    let pool = init_db(20).await;
 
     let (measure_tx, measure_rx) = mpsc::channel::<MainMsg>(100);
 
@@ -42,13 +42,12 @@ pub async fn run_db_master(rx: mpsc::Receiver<MainMsg>, tx_to_reader: mpsc::Send
                     CommandType::SubGroupCommand(_) => user_sub_group_command(&pool, msg),
                     CommandType::TokenUpdate(_) => update_token(&pool, msg)
                 }
-            },  //TODO
+            },
             MainMsg::Request(msg) => {
                 match msg {
                     Request::GetNode(request) =>  node_get(&pool, request),
                     Request::GetDevice(request) => devise_get(&pool, request),
                     Request::GetValue(request) => value_get(&pool, request),
-                    Request::GetDecodingType => {}, //TODO
                     Request::GetUser(user) => users_get(&pool, user),
                     Request::GetGroup(group) => groups_get(&pool, group),
                     Request::GetSubGroup(sub_group) => user_sub_group_get(&pool, sub_group),

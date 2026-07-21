@@ -36,17 +36,14 @@ pub struct SatecDoubleRegistersInt32 {
 impl ValueInterface for SatecDoubleRegistersInt32 {
     fn init(&mut self, settings: String, id: i32, logging: bool) -> Vec<i32> {
         let setting = serde_json::from_str(settings.as_str());
-
-        let init_data: SatecDoubleRegistersSerde;
-
-        match setting {
-            Ok(s) => init_data = s,
+        let init_data: SatecDoubleRegistersSerde = match setting {
+            Ok(s) =>  s,
             Err(e) => {
                 let msg = format!("Помилкка десеріалізації плагіну SatecDoubleRegistersInt32: \n{:?}\n{settings}", e);
                 printers::err(msg);
                 return Vec::new();
             }
-        }
+        };
         self.id = id;
         self.tag = Arc::new(init_data.tag);
         self.hi_register = init_data.hi_register;
@@ -61,18 +58,17 @@ impl ValueInterface for SatecDoubleRegistersInt32 {
     fn get_id(&self) -> i32 {
         self.id
     }
-    fn find_your_registers(&mut self, dataset: &Vec<i32>) -> bool {
+    fn find_your_registers(&mut self, dataset: &[i32]) -> bool {
         if self.is_init {return false};
 
         let mut hi_found = false;
         let mut lo_found = false;
-
-        for i in 0..dataset.len() {
-            if self.hi_register == dataset[i]{
+        for (i, &value) in dataset.iter().enumerate() {
+            if self.hi_register == value{
                 self.hi_pos_register = i as i32;
                 hi_found = true;
             }
-            if self.lo_register == dataset[i]{
+            if self.lo_register == value{
                 self.lo_pos_register = i as i32;
                 lo_found = true;
             }
@@ -84,7 +80,7 @@ impl ValueInterface for SatecDoubleRegistersInt32 {
         }
         false
     }
-    fn get_value(&self, reg_list: &Vec<u16>, timestamp: i64) -> ModbusMeasure {
+    fn get_value(&self, reg_list: &[u16], timestamp: i64) -> ModbusMeasure {
 
         if reg_list.len() <= self.hi_pos_register as usize || reg_list.len() <= self.lo_pos_register as usize { // заглушка для тестування, це ж довбаний раст
             panic!("Паніка при декодуванні значення {}, вихід за межі вектору", &self.tag);

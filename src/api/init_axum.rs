@@ -1,12 +1,15 @@
+use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 use axum::{middleware, Router};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use crate::api::router;
 use crate::messages::main_msg::MainMsg;
-use crate::api::web_sockets::{live_socket_unit::CoordUnitWebSocketData, live_socket::live_router,  web_sock_coord};
+use crate::api::web_sockets::{live_socket_unit::CoordUnitWebSocketCommand, live_socket::live_router,  web_sock_coord};
 use tower_http::cors::CorsLayer;
 use serde::{Deserialize, Serialize};
 use crate::api::router::middlewares::{auth_middleware};
+
 
 
 
@@ -16,7 +19,8 @@ use crate::logger;
 #[derive(Clone)]
 pub struct AppState {
     pub from_api: mpsc::Sender<MainMsg>,
-    pub to_ws_coord: mpsc::Sender<CoordUnitWebSocketData>
+    pub to_ws_coord: mpsc::Sender<CoordUnitWebSocketCommand>,
+    pub ws_counter: Arc<AtomicUsize>
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
@@ -38,6 +42,7 @@ pub async fn init_axum(from_api:  mpsc::Sender<MainMsg>, to_api: mpsc::Receiver<
         let app_state = AppState{
             from_api,
             to_ws_coord,
+            ws_counter: Arc::new(AtomicUsize::new(0))
         };
 
         tokio::spawn(web_sock_coord::web_sock_coord(to_api, rx_ws_coord));

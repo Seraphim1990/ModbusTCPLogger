@@ -24,7 +24,7 @@ pub async fn init_db_if_need_it() {
                     "mysql://{}:{}@{}:{}/scada_db_v2",
                     config.db_user, config.db_password, config.db_address, config.db_port
                 );
-                if let Err(_) = MySqlPool::connect(url.as_str()).await {
+                if MySqlPool::connect(url.as_str()).await.is_err() {
                     match init_database::init_database(&pool, &config.db_address, config.db_port, &config.db_user, &config.db_password).await {
                         Ok(_) => {
                             println!("Базу даних ініціалізовано.\nЛогін адміна: Harold_Finch\nПароль: L0ng_@dmin_P@ssw0rd!\nВ паролі використані нулі, не зпутай буквою 'О'\nЗапиши чи запам'ятай\n");
@@ -45,7 +45,7 @@ pub async fn init_db_if_need_it() {
             Err(e) => {
                 println!(
                     "Помилка під'єднання до БД\nПеревір конфігурацію:\nuser: {}\naddr: {}\nport: {}\n{}",
-                    config.db_user, config.db_address, config.db_port, e.to_string()
+                    config.db_user, config.db_address, config.db_port, e
                 );
                 println!("Якщо в помилках є щось типу\nconnection failed: authentication error\nабо\naccess denied for user 'xxx'\nМожливо не вірний пароль");
                 'input_loop: loop {
@@ -103,7 +103,7 @@ async fn create_config() {
 
         'address_loop: loop {
             db_address = read_line("Адреса бази даних: ").await;
-            if let Ok(_) = &db_address.parse::<Ipv4Addr>() {
+            if db_address.parse::<Ipv4Addr>().is_ok() {
                 break 'address_loop;
             } else {
                 println!("Невірний формат IpV4 адреси");
@@ -111,14 +111,10 @@ async fn create_config() {
         }
         'port_loop: loop {
             let port = read_line("Порт бази даних: ").await;
-            match port.parse::<i32>() {
-                Ok(pt) => {
-                    if pt >= 0 && pt <= 65535 {
-                        db_port = pt as u16;
-                        break 'port_loop;
-                    }
-                },
-                Err(_) => {}
+
+            if let Ok(port) = port.parse::<i32>() && (0..=65535).contains(&port) {
+                db_port = port as u16;
+                break 'port_loop;
             }
             println!("Число має бути в діапазоні 0-65535\n");
         }
@@ -132,7 +128,7 @@ async fn create_config() {
                     db_address,
                     db_port
                 };
-                let db_conf_str = toml::to_string(&db_config).expect("Помилка серіалізації конфігу бази даних"); // TODO це на старті, має вижити, інакше не страшно...
+                let db_conf_str = toml::to_string(&db_config).expect("Помилка серіалізації конфігу бази даних"); // це на старті, має вижити, інакше не страшно...
                 let encoded = encrypt_string(&db_conf_str).expect("Помилка серіалізації конфігу бази даних");
                 fs::create_dir_all("configs").expect("Не вдалося створити каталог");
                 fs::write("configs/db.toml", encoded).expect("Помилка запису файлу: {}");
@@ -141,7 +137,7 @@ async fn create_config() {
             Err(e) => {
                 println!(
                     "Помилка під'єднання до БД\nПеревір конфігурацію:\nuser: {}\naddr: {}\nport: {}\n{}",
-                    db_user, db_address, db_port, e.to_string()
+                    db_user, db_address, db_port, e
                 );
                 println!("Якщо в помилках є щось типу\nconnection failed: authentication error\nабо\naccess denied for user 'xxx'\nМожливо не вірний пароль");
 
@@ -161,12 +157,12 @@ async fn read_line(prompt: &str) -> String {
         let mut reader = BufReader::new(stdin);
         let mut input = String::new();
 
-        if let Err(_) = reader.read_line(&mut input).await {
+        if reader.read_line(&mut input).await.is_err() {
             println!("\nПомилка читання!");
             continue;
         }
 
-        print!("\n");
+        println!();
         return input.trim().to_string()
     }
 }
