@@ -4,7 +4,7 @@
 
 An async Modbus TCP telemetry logger, data hub, and REST/WebSocket API gateway built for IIoT, industrial automation, and SCADA integration. Written in **Rust**.
 
-> 🌍 **Multi-language ready.** The backend and API responses are being wired for i18n (see [Localization](#-localization) below) so operator UIs can ship in the client's native language, not just English/Ukrainian.
+> 🌍 **Multi-language ready.** The backend and API responses are being wired for i18n (see [Localization](#-localization) below) so operator UIs can ship in the client's native language, not just Ukrainian.
 
 ---
 
