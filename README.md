@@ -5,7 +5,6 @@
 [![Framework](https://img.shields.io/badge/Web-Axum-blue.svg)](https://github.com/tokio-rs/axum)
 [![Async](https://img.shields.io/badge/Runtime-Tokio-lightgrey.svg)](https://tokio.rs/)
 [![Database](https://img.shields.io/badge/Database-MySQL-blue.svg)](https://www.mysql.com/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 Асинхронний логер телеметрії Modbus TCP, концентратор даних та REST/WebSocket API шлюз, розроблений для систем IIoT, промислової автоматизації та інтеграції зі SCADA. Створений на **Rust** 
 
@@ -67,7 +66,7 @@
 
 ---
 
-##Швидкий старт
+## Швидкий старт
 
 ### Встановлення та запуск
 
