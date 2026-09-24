@@ -4,24 +4,18 @@
 
 An async Modbus TCP telemetry logger, data hub, and REST/WebSocket API gateway built for IIoT, industrial automation, and SCADA integration. Written in **Rust**.
 
-> 🌍 **Multi-language ready.** The backend and API responses are being wired for i18n (see [Localization](#-localization) below) so operator UIs can ship in the client's native language, not just Ukrainian.
-
 ---
 
 ## Why this matters (TL;DR for non-engineers)
 
-- **No data loss during reconfiguration** — hardware/tag configs hot-reload without stopping the service.
 - **Self-healing polling** — link errors and timeouts are detected and recovered automatically; timeout tuning cut timeout counts by an order of magnitude in production use.
-- **Low DB load** — deduplication + batched writes mean the database only stores what actually changed.
+- **Low DB load — deduplication + batched writes reduce unnecessary database writes by skipping unchanged values.
 - **Instant dashboards** — recent history (up to ~22 days per tag) is served from RAM, not the database, so charts and reports load immediately.
 - **Role-based access** — Admin / SuperUser / User / Service levels with JWT auth, so operators and integrators get exactly the access they need.
 
 ---
 
 ## Architecture & Code Structure
-
-[#architecture--code-structure](#architecture--code-structure)
-
 The application runs on the `tokio` async runtime. Subsystems are decoupled and communicate through typed async `mpsc` channels rather than calling each other directly.
 
 ### Central message router (`/messages`)
@@ -36,9 +30,6 @@ All subsystems route their operations through a single event bus using one messa
 ---
 
 ## Key Features & Modules
-
-[#key-features--modules](#key-features--modules)
-
 ### 1. Adaptive Modbus polling (`/reader` & `/modbus_device`)
 
 - **`node_master`** — top-level actor managing polling nodes. Receives signals from the database router and dynamically spawns new polling tasks or forwards signals to existing ones.
@@ -79,24 +70,18 @@ All subsystems route their operations through a single event bus using one messa
 
 ## 🌍 Localization
 
-[#-localization](#-localization)
-
-> **Status: in progress.** The core is already structured for this — the work is threading shared strings/config through `Arc` and refactoring outward-facing text into a translation layer. Estimated a couple of evenings of focused refactoring.
+> **Status: in progress.** The core is already structured for this — the work is threading shared strings/config through `Arc` and refactoring outward-facing text into a translation layer.
 
 Planned approach:
 
 - **Backend/API messages** — error messages, event descriptions, and validation responses moved behind a locale-aware lookup, selected per request (e.g. `Accept-Language` header or user profile setting), so integrators consuming the REST/WebSocket API get responses in their own language.
 - **Shared state via `Arc`** — locale tables and translation maps wrapped in `Arc<...>` and shared across polling/DB/WebSocket actors without per-message cloning overhead, consistent with the existing actor/channel architecture.
 - **UI layer** — the browser-served UI reads the same locale tables, so operator dashboards can ship in the client's language rather than only English/Ukrainian — useful when deploying to plants with non-English-speaking floor staff.
-- **No breaking changes intended** — default locale stays backward-compatible with existing deployments; new locales are additive.
-
 If you need a specific language prioritized for a project, mention it — it's straightforward to add once the translation layer lands.
 
 ---
 
 ## 🛠 Tech Stack
-
-[#-tech-stack](#-tech-stack)
 
 - **Core**: Rust, async runtime `tokio`
 - **Networking & Web**: `axum`, `WebSocket`, `jsonwebtoken`, `tower-http`
@@ -107,9 +92,6 @@ If you need a specific language prioritized for a project, mention it — it's s
 ---
 
 ## Quick Start
-
-[#quick-start](#quick-start)
-
 **1. Clone the repository**
 
 ```
