@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Звіт станів</title>
+    <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+
+    <!-- ХЕДЕР -->
+    <header class="header">
+
+        <!-- Верхній рядок: алерти (вся ширина) -->
+        <div class="hdr-alerts">
+            <span class="hdr-label">Стан мережі:</span>
+            <div class="alert-strip" id="alert-strip">
+                <!-- JS: плашки тільки при аномаліях -->
+            </div>
+        </div>
+
+        <!-- Нижній рядок: юзер + група -->
+        <div class="hdr-bot">
+            <div class="user-block">
+                <div class="user-avatar" id="user-avatar">??</div>
+                <div class="user-info">
+                    <span class="user-name" id="user-name">—</span>
+                    <span class="user-role" id="user-role">—</span>
+                </div>
+                <button class="btn-logout" id="btn-logout">⏻ Вийти</button>
+            </div>
+            <div class="hdr-separator"></div>
+            <span class="hdr-label">Група:</span>
+            <select class="combo" id="group-select">
+                <option value="">— оберіть групу —</option>
+            </select>
+        </div>
+
+    </header>
+
+    <!-- ПЕРЕМИКАЧ РЕЖИМІВ (тільки для адміна) -->
+    <nav class="mode-bar" id="mode-bar">
+        <button class="mode-tab active" data-mode="view">👁 Перегляд</button>
+        <button class="mode-tab" data-mode="physical">⚙ Фізичне</button>
+        <button class="mode-tab" data-mode="logical">🗂 Логічне</button>
+    </nav>
+
+    <!-- ОСНОВНИЙ КОНТЕНТ -->
+    <main class="main-content">
+
+        <!-- ===== ПАНЕЛЬ: ПЕРЕГЛЯД ===== -->
+        <section class="panel" id="panel-view">
+            <div class="panel-left view-left">
+
+                <!-- Налаштування часового діапазону -->
+                <div class="view-time-control">
+                    <span class="hdr-label">Діапазон графіку:</span>
+                    <select class="combo" id="chart-hours-select">
+                        <option value="1">1 година</option>
+                        <option value="3">3 години</option>
+                        <option value="6">6 годин</option>
+                        <option value="12">12 годин</option>
+                        <option value="24" selected>24 години</option>
+                        <option value="48">2 доби</option>
+                        <option value="168">7 днів</option>
+                    </select>
+                </div>
+
+                <!-- Список підгруп і values -->
+                <div class="subgroup-list" id="subgroup-list">
+                    <!-- JS: підгрупи → values з чекбоксами і live даними -->
+                </div>
+
+            </div>
+            <div class="panel-right view-right">
+
+                <!-- Заголовок графіку -->
+                <div class="chart-header" id="chart-header">
+                    <span class="chart-title" id="chart-title">Оберіть підгрупу або значення</span>
+                </div>
+
+                <!-- Канвас графіку -->
+                <div class="chart-container" id="chart-container">
+                    <canvas id="main-chart"></canvas>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- ===== ПАНЕЛЬ: ФІЗИЧНЕ ===== -->
+        <section class="panel hidden" id="panel-physical">
+            <div class="panel-full">
+                <div class="phys-header">
+                    <span class="table-title">Дерево опитування</span>
+                    <button class="btn-add" id="btn-add-node">+ Додати ноду</button>
+                </div>
+                <div class="phys-tree" id="phys-tree">
+                    <!-- JS: повне дерево нода → пристрій → values -->
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== ПАНЕЛЬ: ЛОГІЧНЕ ===== -->
+        <section class="panel hidden" id="panel-logical">
+            <div class="panel-full">
+
+                <!-- Користувачі -->
+                <div class="phys-header">
+                    <span class="table-title">Користувачі</span>
+                    <button class="btn-add" id="btn-add-user">+ Додати користувача</button>
+                </div>
+                <div class="logic-block" id="logic-users">
+                    <!-- JS -->
+                </div>
+
+                <!-- Групи → Підгрупи → Values -->
+                <div class="phys-header" style="margin-top:16px">
+                    <span class="table-title">Групи / Підгрупи / Values</span>
+                    <button class="btn-add" id="btn-add-group">+ Додати групу</button>
+                </div>
+                <div class="phys-tree" id="logic-tree">
+                    <!-- JS: група → підгрупа → value_units -->
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ФУТЕР — динамічний, росте від вибраних чекбоксів -->
+    <footer class="footer" id="footer">
+
+        <!-- Завжди видимий рядок: дати + звіт -->
+        <div class="footer-main">
+            <span class="footer-label">Початок:</span>
+            <input type="datetime-local" id="start-time">
+            <span class="footer-label">Кінець:</span>
+            <input type="datetime-local" id="end-time">
+            <button class="btn-report" id="btn-report">Сформувати звіт</button>
+        </div>
+
+        <!-- Вибрані значення — з'являється коли є хоч один чекбокс -->
+        <div class="footer-selected hidden" id="footer-selected">
+            <span class="footer-label">Обрано:</span>
+            <div class="selected-tags" id="selected-tags">
+                <!-- JS: плашки вибраних values -->
+            </div>
+        </div>
+
+    </footer>
+
+    <!-- МОДАЛКА: ФОРМА -->
+    <div class="modal-overlay hidden" id="modal-form-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <span class="modal-title" id="modal-form-title">—</span>
+                <button class="modal-close" id="modal-form-close">✕</button>
+            </div>
+            <div class="modal-body" id="modal-form-body"></div>
+            <div class="modal-footer">
+                <button class="btn-primary" id="modal-form-submit">—</button>
+                <button class="btn-secondary" id="modal-form-cancel">Скасувати</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛКА: ПІДТВЕРДЖЕННЯ -->
+    <div class="modal-overlay hidden" id="modal-confirm-overlay">
+        <div class="modal modal-sm">
+            <div class="modal-header">
+                <span class="modal-title">Підтвердити дію</span>
+            </div>
+            <div class="modal-body">
+                <div class="confirm-details" id="confirm-details"></div>
+                <div class="confirm-check">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="confirm-checkbox">
+                        Так, підтверджую
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-primary" id="confirm-ok" disabled>Виконати</button>
+                <button class="btn-secondary" id="confirm-cancel">Скасувати</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ЛОГІН ОВЕРЛЕЙ -->
+    <div class="login-overlay" id="login-overlay">
+        <div class="login-box">
+            <div class="login-title">Система логування</div>
+            <div class="login-error hidden" id="login-error"></div>
+            <div class="form-group">
+                <label class="form-label">Логін</label>
+                <input class="form-input" type="text" id="login-username" placeholder="username" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Пароль</label>
+                <input class="form-input" type="password" id="login-password" placeholder="••••••••" autocomplete="current-password">
+            </div>
+            <button class="btn-primary" id="login-btn" style="width:100%;margin-top:8px">Увійти</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
+    <script src="/static/schemas.js"></script>
+    <script src="/static/admin.js"></script>
+</body>
+</html>
