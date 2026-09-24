@@ -352,8 +352,9 @@ async fn create_value(pool: &Pool<MySql>, value: &ValueCreate, tx_to_reader: mps
 }
 #[derive(Debug, FromRow)]
 struct ReadVal{
-    _id: i32,
-    decoding_type: i32
+    id: i32,
+    decoding_type: i32,
+    is_logging: bool,
 }
 
 async fn value_update(pool: &Pool<MySql>, value: &ValueUpdate, tx_to_reader: mpsc::Sender<ConfigEvent>) -> Result<(), String> {

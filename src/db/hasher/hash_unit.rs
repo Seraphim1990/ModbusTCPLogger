@@ -1,8 +1,10 @@
+use std::cmp::PartialEq;
 use crate::messages::requests::measure_request::HashedValue;
 
 const STABLE_DELTA: i64 = 300;
 const FAILURE_DELTA: i64 = 120;
 
+#[derive(PartialEq)]
 enum HashState{
     Normal,
     InFail,
@@ -10,16 +12,11 @@ enum HashState{
 }
 pub struct ValueHasher {
     hashed_values: Vec<HashedValue>,
-    size: usize,
     capacity: usize,
     current: usize,
     stable_delta: i64,
     failure_delta: i64,
-    in_failure: bool,
-    failure_reported: bool,
-
     last_emitted_ts: i64,
-
     head: usize,
     tail: usize,
     ring_finished: bool,
@@ -33,15 +30,11 @@ impl ValueHasher {
         hashed_values[0] = HashedValue { val, timestamp };
         ValueHasher {
             hashed_values,
-            size: 1,
             current: 0,
             capacity,
             stable_delta: STABLE_DELTA,
             failure_delta: FAILURE_DELTA,
-            in_failure: false,
-            failure_reported: false,
             last_emitted_ts: timestamp,
-
             head: 0,
             tail: 0,
             ring_finished: false,
@@ -51,25 +44,14 @@ impl ValueHasher {
     }
 
     pub fn add(&mut self, val: f64, timestamp: i64) -> (Option<HashedValue>, Option<HashedValue>) {
-
-        // не прочитано
-        // цей блок має працювати без реворку
-        if val == f64::MIN {
-            return self.add_fail(val, timestamp);
+        match val {
+            f64::MIN => self.add_fail(val, timestamp),
+            _ => match self.state {
+                HashState::Normal => self.add_normal(val, timestamp),
+                HashState::InFail => self.add_after_noice(val, timestamp),
+                HashState::FailReported => self.clean_fail_report(val, timestamp),
+            }
         }
-        // прочитано, нормальний режим
-        if !self.failure_reported && !self.in_failure {  // Normal
-            return self.add_normal(val, timestamp);
-        }
-        // прочитано, це був шум (failure не встигла зареєструватись)
-        if self.in_failure && !self.failure_reported { // InFail
-            return self.add_after_noice(val, timestamp);
-        }
-        // прочитано, failure вже була зареєстрована (Err уже пішов) — виходимо з режиму
-        if self.failure_reported { // FailReported
-           return self.clean_fail_report(val, timestamp);
-        }
-        Self::void()
     }
 
     /// Компенсує рух head в go_ahead: рахує позиції та фіксує момент,
@@ -123,7 +105,7 @@ impl ValueHasher {
         Self::void()
     }
     fn add_after_noice(&mut self, val: f64, timestamp: i64) -> (Option<HashedValue>, Option<HashedValue>) {
-        self.in_failure = false;
+        self.state = HashState::Normal;
         if !self.ring_finished {
             self.current -= 1; // компенсуємо advance() з MIN-гілки
         }
@@ -133,8 +115,7 @@ impl ValueHasher {
     }
 
     fn clean_fail_report(&mut self, val: f64, timestamp: i64) -> (Option<HashedValue>, Option<HashedValue>) {
-        self.in_failure = false;
-        self.failure_reported = false;
+        self.state = HashState::Normal;
         self.is_resolving_duplicate = false;
         self.advance();
         self.go_ahead();
@@ -144,19 +125,19 @@ impl ValueHasher {
     }
 
     fn add_fail(&mut self, val: f64, timestamp: i64) -> (Option<HashedValue>, Option<HashedValue>) {
-        if self.failure_reported {
+        if self.state == HashState::FailReported {
             return Self::void()
         }
-        if !self.in_failure {
+        if self.state != HashState::InFail {
             self.advance();
             self.go_ahead();
             self.hashed_values[self.head] = HashedValue { val, timestamp };
-            self.in_failure = true; // фільтр
+            self.state = HashState::InFail; // фільтр
         }
         if (timestamp - self.hashed_values[self.head].timestamp) > self.failure_delta
-                && !self.failure_reported {
+                && self.state != HashState::FailReported {
             self.hashed_values[self.head].timestamp = timestamp;
-            self.failure_reported = true;
+            self.state = HashState::FailReported;
             return if self.is_resolving_duplicate {
                 self.is_resolving_duplicate = false;
                 self.current_and_previous_val()
@@ -181,87 +162,6 @@ impl ValueHasher {
     }
     fn void() -> (Option<HashedValue>, Option<HashedValue>) {
         (None, None)
-    }
-
-    // код старого add
-    /*
-if val == f64::MIN {
-    if !self.in_failure {
-        self.advance_and_write(val, timestamp);
-        self.in_failure = true;
-        // last_emitted_ts НЕ оновлюємо — бо це початок failure
-        return Ok(None);
-    }
-
-    if !self.failure_reported {
-        if timestamp - self.hashed_values[self.current].timestamp >= self.failure_delta {
-            self.hashed_values[self.current].timestamp = timestamp;
-            self.failure_reported = true;
-
-            self.last_emitted_ts = timestamp;   // <-- важливо!
-            return Err(self.hashed_values[self.current].clone());
-        }
-        return Ok(None);
-    }
-    return Ok(None);
-}
-// ====================== val != f64::MIN ======================
-
-if self.failure_reported {
-    self.in_failure = false;
-    self.failure_reported = false;
-    self.advance_and_write(val, timestamp);
-    self.last_emitted_ts = timestamp;
-    return Ok(Some(self.hashed_values[self.current].clone()));
-}
-
-if self.in_failure {
-    self.in_failure = false;
-    let prev_idx = self.current.checked_sub(1)
-        .unwrap_or(self.capacity - 1);
-
-    let prev_val = self.hashed_values[prev_idx].val;
-    let time_since_emitted = timestamp - self.last_emitted_ts;
-
-    if val != prev_val || time_since_emitted >= self.stable_delta {
-        self.hashed_values[self.current] = HashedValue { val, timestamp };
-        self.last_emitted_ts = timestamp;
-        return Ok(Some(self.hashed_values[self.current].clone()));
-    }
-
-    // failure була шумом — відкочуємо каретку
-    self.current = prev_idx;
-    self.hashed_values[self.current].timestamp = timestamp;
-
-    // Виправлення: компенсуємо advance_and_write
-    if self.size > 0 {
-        self.size -= 1;
-    }
-
-    return Ok(None);
-}
-// ==================== Нормальний режим ====================
-let prev_val = self.hashed_values[self.current].val;
-let time_since_emitted = timestamp - self.last_emitted_ts;
-
-if val != prev_val || time_since_emitted >= self.stable_delta {
-    self.advance_and_write(val, timestamp);
-    self.last_emitted_ts = timestamp;
-    return Ok(Some(self.hashed_values[self.current].clone()));
-}
-
-// те саме значення, ще рано видавати
-self.hashed_values[self.current].timestamp = timestamp;
-Ok(None)
-
- */
-
-    fn on_loop(&mut self, val: f64, timestamp: i64) -> Result<Option<HashedValue>, HashedValue> {
-        unimplemented!()
-    }
-
-    fn pre_loop(&mut self, val: f64, timestamp: i64) -> Result<Option<HashedValue>, HashedValue> {
-        unimplemented!()
     }
 
     pub fn get_hashed(&self, from: i64, to: i64) -> Option<Vec<HashedValue>> {
@@ -290,11 +190,9 @@ Ok(None)
                 result.push(hv.clone());
             }
         }
-
         Some(result)
     }
-
-
+    
     fn lower_bound_ring(
         arr: &[HashedValue],
         size: usize,

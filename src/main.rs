@@ -2,6 +2,7 @@
 #![allow(clippy::wrong_self_convention)]
 #![allow(clippy::result_large_err)]
 
+use std::time::Duration;
 use messages::main_msg::MainMsg;
 use tokio::io::{AsyncBufReadExt, BufReader as TokioBufReader};
 use tokio::sync::mpsc;
@@ -70,10 +71,11 @@ async fn main() {
             white_bg,
             saitama.trim_end(),
             reset,
-            message,
+            &message,
         );
-
+        printers::debug(message.to_string());
     }));
+
     minimal_copy_safe::copy_check::check_key_and_activate();
 
     api::sockets::check_and_create_server::init_server_config_first_run().await;
@@ -83,6 +85,7 @@ async fn main() {
     print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
 
     loop {
+
         let (to_api_tx, to_api_rx) = mpsc::channel::<MainMsg>(100);
         let (from_api_tx, from_api_rx) = mpsc::channel::<MainMsg>(100);
         let (from_reader_tx, from_reader_rx) = mpsc::channel::<MainMsg>(100);
@@ -90,27 +93,7 @@ async fn main() {
         let (to_db_tx, to_db_rx) = mpsc::channel::<MainMsg>(100);
         let (from_db_tx, from_db_rx) = mpsc::channel::<ConfigEvent>(100);
 
-        let console_cleaner = tokio::spawn(async {
-                loop {
-                    let now = Local::now();
-
-                    let next_midnight = now
-                        .date_naive()
-                        .checked_add_days(Days::new(1))
-                        .unwrap()
-                        .and_hms_opt(0, 0, 0)
-                        .unwrap();
-
-                    let duration = (next_midnight - now.naive_local())
-                        .to_std()
-                        .unwrap();
-
-                    sleep_until(Instant::now() + duration).await;
-
-                    print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
-                    printers::warn("Очищення консолі".to_string()); //
-                }
-        });
+        printers::init_logger();
 
         let mut api_handler = tokio::spawn(async move {
             api::init_axum::init_axum(from_api_tx, to_api_rx).await;
@@ -168,7 +151,6 @@ async fn main() {
             }
         }
         // якшо сюда дійде то пиздець!!!
-        console_cleaner.abort();
         reader_handler.abort();
         data_master_handler.abort();
         db_handler.abort();

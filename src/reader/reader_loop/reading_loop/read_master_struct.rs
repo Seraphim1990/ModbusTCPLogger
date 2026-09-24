@@ -35,6 +35,12 @@ enum ModbusReadError {
     HeaderMisMatch
 }
 
+enum HeaderMismatchAction {
+    None,
+    IncreaseCurrent,
+    IncreasePrevious,
+}
+
 type ModbusReadResult =
 Result<Vec<u16>, ModbusReadError>;
 
@@ -45,6 +51,7 @@ pub struct ReadMaster{
     devices: Vec<ModbusDeviceUnit>,
     ctx: Option<Context>,
     current_devise_index: Option<usize>,
+    lastest_device_index: Option<usize>,
     to_controller: mpsc::Sender<MainMsg>,
     ctx_state: NodeEventType,
     last_connecting_time: u64,
@@ -58,6 +65,7 @@ impl ReadMaster{
             devices: Vec::new(),
             ctx: None,
             current_devise_index: None,
+            lastest_device_index: None,
             to_controller: sender,
             ctx_state: NodeEventType::UnConnected,
             last_connecting_time: 0
@@ -105,121 +113,148 @@ impl ReadMaster{
     }
 
     async fn read(&mut self) {
-        let device = &mut self.devices[self.current_devise_index.unwrap()];
-
-        if !device.is_active() {
-            return;
-        }
-
-        let ctx = match self.ctx.as_mut() {
-            Some(ctx) => ctx,
-            None => return,
-        };
-        let slave = Slave(device.address());
-        ctx.set_slave(slave);
-
-        let dev_id = device.id();
-        let total_steps = device.total_steps();
 
         let mut total_result = Vec::new();
-        let timeout_duration = device.timeout();
-        let retry_count = device.retry_count() as u64;
-
+        let mut header_mismatch = HeaderMismatchAction::None;
         let mut failed_steps = 0;
+        let total_steps;
+        let dev_id;
 
-        let mut is_increase_timeout = false;
-
-        'step_loop: for step in device.get_pool() {
-            if step.is_broken() {
-                failed_steps += 1;
-                continue
+        {
+            let device = if let Some(idx) = self.current_devise_index {
+                &mut self.devices[idx]
+            } else {
+                return;
             };
-            let mut curr_try = 0;
-            loop {
-                let read_result = match step.get_type(){
-                    RegType::Input => {
-                        read_process(|| ctx.read_input_registers(step.get_start(), step.get_length()),
-                                                                                            timeout_duration,
-                                                                                            dev_id,
-                                                                                            self.ip.clone(),
-                        ).await
-                    },
-                    RegType::Holding => {
-                        read_process(|| ctx.read_holding_registers(step.get_start(), step.get_length()),
-                                     timeout_duration,
-                                     dev_id,
-                                     self.ip.clone(),
-                        ).await
-                    }
-                    RegType::Coils => {
-                        read_process(|| ctx.read_coils(step.get_start(), step.get_length()),
-                                     timeout_duration,
-                                     dev_id,
-                                     self.ip.clone(),
-                        ).await
-                    },
-                    RegType::Discrete => {
-                        read_process(|| ctx.read_discrete_inputs(step.get_start(), step.get_length()),
-                                     timeout_duration,
-                                     dev_id,
-                                     self.ip.clone(),
-                        ).await
-                    },
-                };
 
-                match read_result {
-                    Ok(read_result) => {
-                        for val in step.get_value(&read_result) {
-                            total_result.push(val);
+
+            if !device.is_active() {
+                return;
+            }
+
+            let ctx = match self.ctx.as_mut() {
+                Some(ctx) => ctx,
+                None => return,
+            };
+            let slave = Slave(device.address());
+            ctx.set_slave(slave);
+
+            dev_id = device.id();
+            total_steps = device.total_steps(); // ?
+
+
+            let timeout_duration = device.timeout();
+            let retry_count = device.retry_count() as u64;
+
+            'step_loop: for step in device.get_pool() {
+                if step.is_broken() {
+                    failed_steps += 1;
+                    continue
+                };
+                let mut curr_try = 0;
+                loop {
+                    let read_result = match step.get_type() {
+                        RegType::Input => {
+                            read_process(|| ctx.read_input_registers(step.get_start(), step.get_length()),
+                                         timeout_duration,
+                                         dev_id,
+                                         self.ip.clone(),
+                            ).await
+                        },
+                        RegType::Holding => {
+                            read_process(|| ctx.read_holding_registers(step.get_start(), step.get_length()),
+                                         timeout_duration,
+                                         dev_id,
+                                         self.ip.clone(),
+                            ).await
                         }
-                        break;
-                    },
-                    Err(e) => {
-                        match e {
-                            ModbusReadError::Timeout | ModbusReadError::DeviceProtocolError => {
-                                curr_try += 1;
-                            },
-                            ModbusReadError::SocketFail => {
-                                self.disconnecting().await;
-                                return;
-                            },
-                            ModbusReadError::RemoveStep => {
-                                step.mark_broken();
-                                printers::err(format!("Заблоковані регістри пристрою id: {}, адреси з {} по {}  для ноди :{}",
-                                                      dev_id,
-                                                      step.get_start(),
-                                                      (step.get_start() + step.get_length()) - 1,
-                                                      self.ip.clone()));
-                                for val in step.fail() {
-                                    total_result.push(val);
+                        RegType::Coils => {
+                            read_process(|| ctx.read_coils(step.get_start(), step.get_length()),
+                                         timeout_duration,
+                                         dev_id,
+                                         self.ip.clone(),
+                            ).await
+                        },
+                        RegType::Discrete => {
+                            read_process(|| ctx.read_discrete_inputs(step.get_start(), step.get_length()),
+                                         timeout_duration,
+                                         dev_id,
+                                         self.ip.clone(),
+                            ).await
+                        },
+                    };
+
+                    match read_result {
+                        Ok(read_result) => {
+                            for val in step.get_value(&read_result) {
+                                total_result.push(val);
+                            }
+                            break;
+                        },
+                        Err(e) => {
+                            match e {
+                                ModbusReadError::Timeout | ModbusReadError::DeviceProtocolError => {
+                                    curr_try += 1;
+                                },
+                                ModbusReadError::SocketFail => {
+                                    self.disconnecting().await;
+                                    return;
+                                },
+                                ModbusReadError::RemoveStep => {
+                                    step.mark_broken();
+                                    printers::err(format!("Заблоковані регістри пристрою id: {}, адреси з {} по {}  для ноди :{}",
+                                                          dev_id,
+                                                          step.get_start(),
+                                                          (step.get_start() + step.get_length()) - 1,
+                                                          self.ip.clone()));
+                                    for val in step.fail() {
+                                        total_result.push(val);
+                                    }
+                                    failed_steps += 1;
+                                    break;
+                                },
+                                ModbusReadError::HeaderMisMatch => {
+                                    if curr_try > 0 {
+                                        header_mismatch  = HeaderMismatchAction::IncreaseCurrent;
+                                    } else {
+                                        header_mismatch  = HeaderMismatchAction::IncreasePrevious;
+                                    }
+                                    break 'step_loop;
                                 }
-                                failed_steps += 1;
-                                break;
-                            },
-                            ModbusReadError::HeaderMisMatch => {
-                                is_increase_timeout = true;
-                                sleep(Duration::from_millis(1000)).await;
-                                break 'step_loop;
                             }
                         }
                     }
-                }
-                if curr_try >= retry_count {
-                    for val in step.fail() {
-                        total_result.push(val);
+                    if curr_try >= retry_count {
+                        for val in step.fail() {
+                            total_result.push(val);
+                        }
+                        failed_steps += 1;
+                        break;
                     }
-                    failed_steps += 1;
-                    break;
-                }
-            };
+                };
 
+            }
         }
-        if is_increase_timeout {
-            device.increase_timeout();
-            printers::warn(format!("Збільшено таймаут для пристрою id: {}, адреса: {}, нода: {}, таймаут: {}", device.id(), device.address(), self.ip.clone(), device.timeout()));
-            self.disconnecting().await; // токіо модбас парашна бібліотека, приям по усим фронтам!!!!
-            return;
+        let prev = self.lastest_device_index;
+        self.lastest_device_index = self.current_devise_index;
+
+        match header_mismatch {
+            HeaderMismatchAction::None => {},
+            HeaderMismatchAction::IncreaseCurrent => {
+                self.increase_timeout(self.current_devise_index).await;
+                return;
+            },
+            HeaderMismatchAction::IncreasePrevious => {
+                self.increase_timeout(prev).await;
+                return;
+            },
         }
+
+        let idx = match self.current_devise_index {
+            Some(idx) => idx,
+            None => return, // провсяккий випадок
+        };
+        let device = &mut self.devices[idx];
 
         let read_report = match failed_steps {
             0 => DeviceEventType::Full,
@@ -250,6 +285,19 @@ impl ReadMaster{
             Err(e) => {
                 printers::err(format!("Помилка відправки результатів опитування: {:?}", e));
             }
+        }
+    }
+
+    async fn increase_timeout(&mut self, idx: Option<usize>) {
+        if let Some(idx) = idx {
+            let device = &mut self.devices[idx];
+            device.increase_timeout();
+            printers::warn(format!("Збільшено таймаут для пристрою id: {}, адреса: {}, нода: {}, таймаут: {}", device.id(), device.address(), self.ip.clone(), device.timeout()));
+        }
+        self.disconnecting().await; // чистимо буфер дісконектом...
+        sleep(Duration::from_millis(5000)).await;
+        if !self.create_context().await {
+            self.disconnecting().await;
         }
     }
 
@@ -446,7 +494,7 @@ impl ReadMaster{
     }
 
     async fn disconnecting(&mut self) {
-        self.last_connecting_time = Self::get_time() + 30000;
+        self.last_connecting_time = Self::get_time() + 60000;
         self.send_connecting_msg(NodeEventType::UnConnected).await;
         printers::err(format!("Закрито з'єднання ip: {}", &self.ip));
         self.ctx = None
