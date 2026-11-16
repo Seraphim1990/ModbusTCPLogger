@@ -54,6 +54,7 @@ pub struct ReadMaster{
     lastest_device_index: Option<usize>,
     to_controller: mpsc::Sender<MainMsg>,
     ctx_state: NodeEventType,
+    last_logged_ctx_state: Option<NodeEventType>,
     last_connecting_time: Instant,
 }
 impl ReadMaster{
@@ -68,6 +69,7 @@ impl ReadMaster{
             lastest_device_index: None,
             to_controller: sender,
             ctx_state: NodeEventType::UnConnected,
+            last_logged_ctx_state: None,
             last_connecting_time: Instant::now()
         }
     }
@@ -79,6 +81,7 @@ impl ReadMaster{
     }
     pub async fn update(&mut self, conf: Arc<NodeRead>) {
         if self.ip.as_str() != conf.ip || self.port != conf.port.unwrap_or(502) {
+            self.last_logged_ctx_state = None;
             self.ip = Arc::new(conf.ip.clone());
             self.port = conf.port.unwrap_or(502);
             let _ = self.create_context().await;
@@ -317,8 +320,7 @@ impl ReadMaster{
         let socket_addr = match format!("{}:{}", self.ip, self.port).parse() {
             Ok(addr) => addr,
             Err(e) => {
-                printers::err(format!("Не вірна адреса сокету: {}", e));
-                self.disconnecting().await;
+                self.disconnecting_with_reason(Some(&format!("Невірна адреса сокету: {}", e))).await;
                 return false;
             }
         };
@@ -326,21 +328,16 @@ impl ReadMaster{
 
         match res {
             Ok(Ok(ctx)) => {
-                let msg = format!("Створено контекст для ip: {}", &self.ip);
-                printers::event(msg);
                 self.ctx = Some(ctx);
                 self.connecting_finished().await;
                 true
             },
             Ok(Err(e)) => {
-                let msg = format!("Помилка створення контексту для ip: {}, \nerr: {} \nПовторна спроба через 60 сек.", &self.ip, e);
-                printers::err(msg);
-                self.disconnecting().await;
+                self.disconnecting_with_reason(Some(&e.to_string())).await;
                 false
             }
             Err(_) => {
-                printers::warn(format!("Таймаут підключення до ip: {}", self.ip));
-                self.disconnecting().await;
+                self.disconnecting_with_reason(Some("Таймаут підключення")).await;
                 false
             }
         }
@@ -472,19 +469,57 @@ impl ReadMaster{
         let val_request = Request::GetValue(val_request);
         MainMsg::Request(val_request)
     }
+    // Connecting is transient: it must reach the coordinator on every attempt,
+    // but must not reset the last stable state used to suppress duplicate logs.
+    fn connection_log_message(&mut self, state: NodeEventType, reason: Option<&str>) -> Option<String> {
+        if state == NodeEventType::Connecting || self.last_logged_ctx_state == Some(state) {
+            return None;
+        }
+        let previous = self.last_logged_ctx_state;
+        self.last_logged_ctx_state = Some(state);
+        let mut message = match state {
+            NodeEventType::Connected => {
+                if previous == Some(NodeEventType::UnConnected) {
+                    format!("З'єднання відновлено ip: {}", self.ip)
+                } else {
+                    format!("Підключено до ip: {}", self.ip)
+                }
+            },
+            NodeEventType::UnConnected => {
+                if previous == Some(NodeEventType::Connected) {
+                    format!("Втрачено з'єднання ip: {}", self.ip)
+                } else {
+                    format!("Немає з'єднання ip: {}", self.ip)
+                }
+            },
+            NodeEventType::Connecting => return None,
+        };
+        if let Some(reason) = reason {
+            message.push_str(&format!(". Причина: {}", reason));
+        }
+        Some(message)
+    }
+
     async fn start_connecting(&mut self) {
         self.send_connecting_msg(NodeEventType::Connecting).await;
-        printers::event(format!("Підключення до ip: {}", &self.ip));
     }
     async fn connecting_finished(&mut self) {
         self.send_connecting_msg(NodeEventType::Connected).await;
-        printers::event(format!("Підключено до ip: {}", &self.ip));
+        if let Some(message) = self.connection_log_message(NodeEventType::Connected, None) {
+            printers::event(message);
+        }
     }
 
     async fn disconnecting(&mut self) {
+        self.disconnecting_with_reason(None).await;
+    }
+
+    async fn disconnecting_with_reason(&mut self, reason: Option<&str>) {
         self.last_connecting_time = Instant::now() + Duration::from_secs(60);
         self.send_connecting_msg(NodeEventType::UnConnected).await;
-        printers::err(format!("Закрито з'єднання ip: {}", &self.ip));
+        if let Some(message) = self.connection_log_message(NodeEventType::UnConnected, reason) {
+            printers::err(message);
+        }
         self.ctx = None
     }
     async fn send_connecting_msg(&mut self, msg: NodeEventType) {
@@ -636,6 +671,58 @@ mod tests {
             deleted: Some(false),
             deleted_at: None,
         })
+    }
+
+    #[test]
+    fn connection_logs_only_report_stable_state_changes() {
+        let mut master = master();
+        assert!(master.connection_log_message(NodeEventType::Connecting, None).is_none());
+        let first = master.connection_log_message(NodeEventType::UnConnected, Some("os error 10060")).unwrap();
+        assert!(first.contains("Немає з'єднання"));
+        assert!(first.contains("os error 10060"));
+        for _ in 0..5 {
+            assert!(master.connection_log_message(NodeEventType::Connecting, None).is_none());
+            assert!(master.connection_log_message(NodeEventType::UnConnected, Some("timeout")).is_none());
+        }
+        let recovered = master.connection_log_message(NodeEventType::Connected, None).unwrap();
+        assert!(recovered.contains("відновлено"));
+        assert!(master.connection_log_message(NodeEventType::Connected, None).is_none());
+        let lost = master.connection_log_message(NodeEventType::UnConnected, None).unwrap();
+        assert!(lost.contains("Втрачено"));
+        assert!(master.connection_log_message(NodeEventType::UnConnected, None).is_none());
+    }
+
+    #[tokio::test]
+    async fn every_retry_still_sends_context_states_and_keeps_the_reconnect_delay() {
+        let mut master = master();
+        let (tx, mut rx) = mpsc::channel(16);
+        master.to_controller = tx;
+        for _ in 0..3 {
+            master.start_connecting().await;
+            let before = Instant::now();
+            master.disconnecting_with_reason(Some("timeout")).await;
+            assert!(master.last_connecting_time >= before + Duration::from_secs(60));
+            assert!(master.last_connecting_time <= Instant::now() + Duration::from_secs(60));
+        }
+        master.start_connecting().await;
+        master.connecting_finished().await;
+        master.disconnecting().await;
+        let expected = [
+            NodeEventType::Connecting, NodeEventType::UnConnected,
+            NodeEventType::Connecting, NodeEventType::UnConnected,
+            NodeEventType::Connecting, NodeEventType::UnConnected,
+            NodeEventType::Connecting, NodeEventType::Connected,
+            NodeEventType::UnConnected,
+        ];
+        for state in expected {
+            let MainMsg::Event(Event::NodeEvent(event)) = rx.try_recv().unwrap()
+                else { panic!("expected node context event") };
+            assert!(event.event == state);
+            assert_eq!(event.id, master.id);
+            assert_eq!(event.ip.as_str(), master.ip.as_str());
+        }
+        assert!(rx.try_recv().is_err());
+        assert!(master.ctx_state == NodeEventType::UnConnected);
     }
 
     #[test]
