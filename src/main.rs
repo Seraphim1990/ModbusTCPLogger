@@ -66,15 +66,17 @@ async fn main() {
         let white_bg = "\x1b[47m\x1b[30m";   // білий фон, чорний текст
         let reset = "\x1b[0m";
 
-        println!(
+        printers::err(format!(
             "{}{}{}\n🔥 КРИТИЧНА ПОМИЛКА\n{}\n\nНатисни Enter для перезапуску...",
             white_bg,
             saitama.trim_end(),
             reset,
-            &message,
-        );
+            message,
+        ));
         printers::debug(message.to_string());
     }));
+
+    printers::init_logger();
 
     minimal_copy_safe::copy_check::check_key_and_activate();
 
@@ -82,7 +84,7 @@ async fn main() {
 
     db::db_init::firs_start::init_db_if_need_it().await;
 
-    print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
+    printers::clear_console();
 
     loop {
 
@@ -92,8 +94,6 @@ async fn main() {
         let (to_reader_tx, to_reader_rx) = mpsc::channel::<ConfigEvent>(100);
         let (to_db_tx, to_db_rx) = mpsc::channel::<MainMsg>(100);
         let (from_db_tx, from_db_rx) = mpsc::channel::<ConfigEvent>(100);
-
-        printers::init_logger();
 
         let mut api_handler = tokio::spawn(async move {
             api::init_axum::init_axum(from_api_tx, to_api_rx).await;

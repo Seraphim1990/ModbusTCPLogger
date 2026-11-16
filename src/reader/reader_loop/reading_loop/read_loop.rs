@@ -1,4 +1,5 @@
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 use crate::messages::requests::node_request::{GetAllNodes, GetByIp, NodeRequest};
 use tokio::sync::oneshot;
 use crate::db::schemas::node::{NodeRead};
@@ -17,16 +18,24 @@ pub async fn node_master(from_controller: mpsc::Receiver<ConfigEvent>, to_contro
     printers::event(String::from("Старт опитувача"));
     let mut from_controller = from_controller;
 
-    let (to_node_tx, mut from_node_rx, from_node_tx) = init_nodes(&to_controller).await;
+    let mut workers = JoinSet::new();
+    let (to_node_tx, mut from_node_rx, from_node_tx) = init_nodes(&to_controller, &mut workers).await;
 
     loop {
         tokio::select! {
+            result = workers.join_next(), if !workers.is_empty() => {
+                if let Some(Err(error)) = result {
+                    // Propagate worker failure to the supervisor in main instead of
+                    // silently leaving this node without a polling task.
+                    panic!("Задача опитування ноди впала: {}", error);
+                }
+            }
             controller_msg = from_controller.recv() => {
                 match controller_msg {
                     Some(msg) => {
                         match &msg.event_type {
                             ConfigEventType::Create => {
-                                create_new_node(&to_node_tx, &from_node_tx, &to_controller, &msg.data).await;
+                                create_new_node(&to_node_tx, &from_node_tx, &to_controller, &msg.data, &mut workers).await;
                             },
                             ConfigEventType::Update | ConfigEventType::Delete => {
                                 send_to_workers(&to_node_tx, msg)
@@ -81,7 +90,8 @@ pub async fn node_master(from_controller: mpsc::Receiver<ConfigEvent>, to_contro
 async fn create_new_node(to_node_tx: &broadcast::Sender<ConfigEvent>,
                          from_node_tx: &mpsc::Sender<MainMsg>,
                          to_controller: &mpsc::Sender<MainMsg>,
-                         node: &NodeRead) {
+                         node: &NodeRead,
+                         workers: &mut JoinSet<()>) {
     let from_node_tx_clone = from_node_tx.clone();
     let node_subscribe = to_node_tx.subscribe();
     let mut try_counter = 0;
@@ -104,7 +114,7 @@ async fn create_new_node(to_node_tx: &broadcast::Sender<ConfigEvent>,
         }
 
         if let Ok(Ok(Some(node_read))) = rx.await {
-            tokio::spawn(async move {
+            workers.spawn(async move {
                 node_loop(from_node_tx_clone, node_subscribe, node_read).await;
             });
             break;
@@ -128,7 +138,7 @@ fn send_to_workers(tx: &broadcast::Sender<ConfigEvent>, signal: ConfigEvent) {
     }
 }
 
-async fn init_nodes(to_controller: &mpsc::Sender<MainMsg>) -> (broadcast::Sender<ConfigEvent>, mpsc::Receiver<MainMsg>, mpsc::Sender<MainMsg>)
+async fn init_nodes(to_controller: &mpsc::Sender<MainMsg>, workers: &mut JoinSet<()>) -> (broadcast::Sender<ConfigEvent>, mpsc::Receiver<MainMsg>, mpsc::Sender<MainMsg>)
 {
     let (rx, get_all_node_msg) = get_all_node_request();
     let _ = to_controller.send(get_all_node_msg).await;
@@ -145,7 +155,7 @@ async fn init_nodes(to_controller: &mpsc::Sender<MainMsg>) -> (broadcast::Sender
                 let from_node_tx_clone = from_node_tx.clone();
                 let node_subscribe = to_node_tx.subscribe();
 
-                tokio::spawn(async move {
+                workers.spawn(async move {
                     node_loop(from_node_tx_clone, node_subscribe, node).await;
                 });
             }

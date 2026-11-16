@@ -1,9 +1,9 @@
 // read_master_struct.rs
 use std::io::ErrorKind;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::{sleep, timeout};
+use tokio::time::{sleep, timeout, Instant};
 use tokio_modbus::client::{tcp, Context};
 use tokio_modbus::{Error, ExceptionCode, ProtocolError, Slave};
 use tokio_modbus::prelude::{Reader, SlaveContext};
@@ -54,7 +54,7 @@ pub struct ReadMaster{
     lastest_device_index: Option<usize>,
     to_controller: mpsc::Sender<MainMsg>,
     ctx_state: NodeEventType,
-    last_connecting_time: u64,
+    last_connecting_time: Instant,
 }
 impl ReadMaster{
     pub fn new(config: &NodeRead, sender: mpsc::Sender<MainMsg>) -> ReadMaster{
@@ -68,7 +68,7 @@ impl ReadMaster{
             lastest_device_index: None,
             to_controller: sender,
             ctx_state: NodeEventType::UnConnected,
-            last_connecting_time: 0
+            last_connecting_time: Instant::now()
         }
     }
     pub fn id(&self) -> i32{
@@ -89,15 +89,15 @@ impl ReadMaster{
     }
 
     pub fn when_next(&mut self) -> u64 {
-        let ts = Self::get_time();
         if self.devices.is_empty() {
-            return 60000; // пристроїв не знайдено, спробуємо через секунду, може шото з команд прийде...
+            return 60_000;
+        }
+        let deadline = if self.ctx.is_none() {
+            self.last_connecting_time
+        } else {
+            self.when_next_device()
         };
-        if self.ctx.is_none() {
-            return self.last_connecting_time.saturating_sub(ts);
-        };
-
-        self.when_next_device().saturating_sub(ts)
+        deadline.saturating_duration_since(Instant::now()).as_millis() as u64
     }
 
     pub async fn tick(&mut self) {
@@ -205,7 +205,7 @@ impl ReadMaster{
                                     printers::err(format!("Заблоковані регістри пристрою id: {}, адреси з {} по {}  для ноди :{}",
                                                           dev_id,
                                                           step.get_start(),
-                                                          (step.get_start() + step.get_length()) - 1,
+                                                          (u32::from(step.get_start()) + u32::from(step.get_length())).saturating_sub(1),
                                                           self.ip.clone()));
                                     for val in step.fail() {
                                         total_result.push(val);
@@ -301,21 +301,14 @@ impl ReadMaster{
         }
     }
 
-    fn when_next_device(&mut self) -> u64{
-        let mut when_next = self.devices[0].when_next();  // при викликові цього методу self.devices.len() != 0 і контекст має бути створений!
-        self.current_devise_index = Some(0);
-        for i in 0..self.devices.len() {
-            if self.devices[i].when_next() < when_next && self.devices[i].is_active() {
-                when_next = self.devices[i].when_next();
-                self.current_devise_index = Some(i);
-            };
-        };
-
-        if self.devices[self.current_devise_index.unwrap_or(0)].is_active() {  // якшо немає активних то просто спимо 1 сек
-            when_next
-        } else {
-            1000
-        }
+    fn when_next_device(&mut self) -> Instant {
+        let next = self.devices.iter().enumerate()
+            .filter(|(_, device)| device.is_active())
+            .map(|(idx, device)| (idx, device.when_next()))
+            .min_by_key(|&(_, deadline)| deadline);
+        self.current_devise_index = next.map(|(idx, _)| idx);
+        next.map(|(_, deadline)| deadline)
+            .unwrap_or_else(|| Instant::now() + Duration::from_secs(1))
     }
 
     async fn create_context(&mut self) -> bool {
@@ -325,22 +318,28 @@ impl ReadMaster{
             Ok(addr) => addr,
             Err(e) => {
                 printers::err(format!("Не вірна адреса сокету: {}", e));
+                self.disconnecting().await;
                 return false;
             }
         };
-        let res = tcp::connect(socket_addr).await;
+        let res = timeout(Duration::from_secs(5), tcp::connect(socket_addr)).await;
 
         match res {
-            Ok(ctx) => {
+            Ok(Ok(ctx)) => {
                 let msg = format!("Створено контекст для ip: {}", &self.ip);
                 printers::event(msg);
                 self.ctx = Some(ctx);
                 self.connecting_finished().await;
                 true
             },
-            Err(e) => {
+            Ok(Err(e)) => {
                 let msg = format!("Помилка створення контексту для ip: {}, \nerr: {} \nПовторна спроба через 60 сек.", &self.ip, e);
                 printers::err(msg);
+                self.disconnecting().await;
+                false
+            }
+            Err(_) => {
+                printers::warn(format!("Таймаут підключення до ip: {}", self.ip));
                 self.disconnecting().await;
                 false
             }
@@ -349,6 +348,8 @@ impl ReadMaster{
 
     async fn create_devices(&mut self) -> bool { // true = devices was created
         self.devices.clear();
+        self.current_devise_index = None;
+        self.lastest_device_index = None;
         let devices = self.get_devises().await;
         if devices.is_empty() {
             return false;
@@ -361,8 +362,8 @@ impl ReadMaster{
             }
         }
         self.devices = devices_units;
-        let _ =self.when_next_device();
-        true
+        let _ = self.when_next_device();
+        !self.devices.is_empty()
     }
 
     async fn get_device_from_db(&mut self, device_config: DeviceRead) -> Option<ModbusDeviceUnit> {
@@ -456,6 +457,7 @@ impl ReadMaster{
             if counter >= 5 {
                 let msg = format!("Помилка отримання пристроїв для {}, кількість спроб вичерпано", &self.ip);
                 printers::warn(msg);
+                return Vec::new();
             }
         }
         devices
@@ -470,20 +472,6 @@ impl ReadMaster{
         let val_request = Request::GetValue(val_request);
         MainMsg::Request(val_request)
     }
-    fn get_time() -> u64 {
-        let sys_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH);
-        match sys_time {
-            Ok(duration) => {
-                duration.as_millis() as u64
-            }
-            Err(_) => {
-                printers::warn(String::from("Помилка отримання часової відмітки"));
-                0
-            }
-        }
-    }
-
     async fn start_connecting(&mut self) {
         self.send_connecting_msg(NodeEventType::Connecting).await;
         printers::event(format!("Підключення до ip: {}", &self.ip));
@@ -494,7 +482,7 @@ impl ReadMaster{
     }
 
     async fn disconnecting(&mut self) {
-        self.last_connecting_time = Self::get_time() + 60000;
+        self.last_connecting_time = Instant::now() + Duration::from_secs(60);
         self.send_connecting_msg(NodeEventType::UnConnected).await;
         printers::err(format!("Закрито з'єднання ip: {}", &self.ip));
         self.ctx = None
@@ -617,5 +605,122 @@ where
         Err(_) => {
             Err(ModbusReadError::Timeout)
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn master() -> ReadMaster {
+        let (tx, _rx) = mpsc::channel(10);
+        ReadMaster::new(&NodeRead {
+            id: 1,
+            ip: "127.0.0.1".into(),
+            port: None,
+            description: None,
+        }, tx)
+    }
+
+    fn device(id: i32, active: bool) -> ModbusDeviceUnit {
+        ModbusDeviceUnit::new(DeviceRead {
+            id,
+            device_name: None,
+            address: id,
+            parent_node_id: 1,
+            time_for_recall: 15_000,
+            timeout: 200,
+            retry_count: 3,
+            is_active: active,
+            read_by_group: true,
+            description: None,
+            deleted: Some(false),
+            deleted_at: None,
+        })
+    }
+
+    #[test]
+    fn inactive_first_device_does_not_block_active_devices() {
+        let mut master = master();
+        master.devices = vec![device(6, false), device(1, true), device(2, true)];
+        let deadline = master.when_next_device();
+        assert_eq!(master.current_devise_index, Some(1));
+        assert_eq!(deadline, master.devices[1].when_next());
+    }
+
+    #[test]
+    fn empty_and_inactive_lists_have_a_real_idle_deadline() {
+        let mut master = master();
+        for devices in [vec![], vec![device(6, false)]] {
+            master.devices = devices;
+            master.current_devise_index = Some(99);
+            let before = Instant::now();
+            let deadline = master.when_next_device();
+            assert_eq!(master.current_devise_index, None);
+            assert!(deadline >= before + Duration::from_secs(1));
+            assert!(deadline <= Instant::now() + Duration::from_secs(1));
+        }
+    }
+
+    #[test]
+    fn earliest_active_device_is_selected() {
+        let mut master = master();
+        let mut later = device(1, true);
+        later.finished();
+        master.devices = vec![later, device(2, true), device(6, false)];
+        master.when_next_device();
+        assert_eq!(master.current_devise_index, Some(1));
+    }
+
+    #[tokio::test]
+    async fn failed_value_lookups_leave_an_empty_list_without_panicking() {
+        let mut master = master();
+        master.current_devise_index = Some(99);
+        master.lastest_device_index = Some(99);
+        let (tx, mut rx) = mpsc::channel(10);
+        master.to_controller = tx;
+        let responder = tokio::spawn(async move {
+            let Some(MainMsg::Request(Request::GetDevice(
+                DeviceRequest::GetByNode(request)
+            ))) = rx.recv().await else { panic!("expected device lookup") };
+            // Build a database configuration from the same values as the table.
+            request.request_channel.send(Ok(vec![DeviceRead {
+                id: 1, device_name: None, address: 4, parent_node_id: 1,
+                time_for_recall: 20_000, timeout: 200, retry_count: 3,
+                is_active: true, read_by_group: true, description: None,
+                deleted: Some(false), deleted_at: None,
+            }])).unwrap();
+            let Some(MainMsg::Request(Request::GetValue(
+                ValueRequest::GetByDeviceId(request)
+            ))) = rx.recv().await else { panic!("expected value lookup") };
+            request.request_channel.send(Err(())).unwrap();
+        });
+        assert!(!timeout(Duration::from_secs(3), master.create_devices())
+            .await.expect("device initialization must complete"));
+        assert!(master.devices.is_empty());
+        assert_eq!(master.current_devise_index, None);
+        assert_eq!(master.lastest_device_index, None);
+        responder.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn device_lookup_stops_after_five_errors() {
+        let mut master = master();
+        let (tx, mut rx) = mpsc::channel(10);
+        master.to_controller = tx;
+        let responder = tokio::spawn(async move {
+            let mut attempts = 0;
+            while let Some(MainMsg::Request(Request::GetDevice(
+                DeviceRequest::GetByNode(request)
+            ))) = rx.recv().await {
+                attempts += 1;
+                request.request_channel.send(Err(())).unwrap();
+            }
+            attempts
+        });
+        let devices = timeout(Duration::from_secs(3), master.get_devises())
+            .await.expect("device lookup must stop retrying");
+        assert!(devices.is_empty());
+        drop(master);
+        assert_eq!(responder.await.unwrap(), 5);
     }
 }

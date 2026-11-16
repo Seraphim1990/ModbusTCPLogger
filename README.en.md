@@ -125,3 +125,17 @@ Server settings are configured in `configs/server.toml`. The UI is served over t
 
 - **GitHub**: [@Seraphim1990](https://github.com/Seraphim1990)
 - **E-mail**: zhenia.koshelnik@gmail.com
+
+## Logging under a watchdog / Windows
+
+Set `console_enabled = false` in `configs/logger.toml` for unattended operation.
+The default is `true` when the file is absent; restart the process after changing
+it. Disabling Windows console QuickEdit is also recommended.
+
+File and console output use independent OS threads and bounded queues (1024 file
+messages, 256 console messages). Tokio workers never wait for output. A blocked
+console does not stop file logging, the API or polling. Full queues discard new
+messages. Cumulative dropped-message and output-error counters are reported in
+subsequent successful file writes with a `[LOGGER]` prefix. Disk errors do not
+cause unbounded buffering. Forced process termination can lose queued messages.
+The logger is initialized once and survives internal subsystem restarts.

@@ -161,7 +161,7 @@ async fn ui_get_subgroups_assign(State(state): State<AppState>, Path(group_id): 
     let res = match group_id.split(',').map(|id| id.trim().parse::<i32>()).collect::<Result<Vec<i32>, _>>() {
         Ok(ids) => {ids},
         Err(e) => {
-            eprintln!("Error parsing ids: {}", e);
+            crate::logger::printers::warn(format!("Error parsing ids: {}", e));
             return (StatusCode::BAD_REQUEST, "Invalid ids").into_response();
         }
     };

@@ -39,6 +39,7 @@ pub async fn node_loop(to_controller: mpsc::Sender<MainMsg>, from_controller: br
                                 ConfigEventType::Create => {}
                             }
                         }
+                        Err(broadcast::error::RecvError::Closed) => return,
                         Err(e) => {
                             let msg = format!("Помилка каналу від контроллера до циклу оритуванні: \n{}", e);
                             printers::err(msg);

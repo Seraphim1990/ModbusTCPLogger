@@ -1,0 +1,3 @@
+# Set false to disable console output for unattended / watchdog-managed runs.
+# File logging remains enabled. Applied once at process startup.
+console_enabled = true
