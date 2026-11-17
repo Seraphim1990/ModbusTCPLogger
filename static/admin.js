@@ -187,6 +187,7 @@ function loadUser(user) {
 }
 
 async function onLogout() {
+    disconnectViewWebSocket();
     const refreshToken = auth.getRefresh();
     if (refreshToken) {
         await fetch(`${API}/auth/logout`, {
@@ -196,7 +197,6 @@ async function onLogout() {
         }).catch(() => {});
     }
     auth.clear();
-    if (state.ws) { state.ws.close(); state.ws = null; }
     goToLogin();
 }
 
@@ -238,8 +238,9 @@ async function onGroupChange(e) {
 }
  */
 async function onGroupChange(e) {
+    disconnectViewWebSocket();
     const groupId = parseInt(e.target.value);
-    if (!groupId) return;
+    if (!groupId) { state.currentGroupId = null; return; }
     state.currentGroupId = groupId;
 
     // 1. Спочатку повністю вичищаємо все старе
@@ -286,6 +287,7 @@ function initModeTabs() {
 
             const mode = btn.dataset.mode;
             state.currentMode = mode;
+            if (mode !== 'view') disconnectViewWebSocket();
 
             document.querySelectorAll('.panel').forEach(p => p.classList.add('hidden'));
             document.getElementById(`panel-${mode}`).classList.remove('hidden');
@@ -302,9 +304,14 @@ function initModeTabs() {
 // =====================================================
 
 
+let viewLoadRequestId = 0;
+
 async function loadViewPanel(groupId) {
+    const requestId = ++viewLoadRequestId;
+    disconnectViewWebSocket();
     const data = await apiFetch(`/user_group/ui/${groupId}`);
-    if (!data) return;
+    if (requestId !== viewLoadRequestId || state.currentGroupId !== groupId || state.currentMode !== 'view') return;
+    if (!data || data.__error) return;
 
     // Зберігаємо завантажені дані в глобальний стан, щоб інші функції мали до них доступ
     viewData = data;
@@ -1743,73 +1750,167 @@ function destroyChartCleanly() {
         }
     }
 }
-function connectViewWebSocket(subGroups) {
-    // 1. Якщо старий вебсокет існує — жорстко закриваємо його перед новим підключенням
-    if (state.ws) {
-        state.ws.close();
-        state.ws = null;
+// One owner for a view subscription, including reconnects and all socket timers.
+let viewSocketSession = null;
+
+function viewSessionActive(session) {
+    return viewSocketSession === session && state.currentMode === 'view'
+        && state.currentGroupId === session.groupId;
+}
+
+function closeViewSocket(session) {
+    clearTimeout(session.connectTimer);
+    clearTimeout(session.pongTimer);
+    clearInterval(session.heartbeatTimer);
+    session.connectTimer = session.pongTimer = session.heartbeatTimer = null;
+    const socket = state.ws;
+    state.ws = null;
+    if (socket) {
+        socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
+        socket.close();
     }
+}
 
-    // 2. Збираємо всі теги, які є в підгрупах цієї групи
-    const allValues = subGroups.flatMap(sg => sg.values);
-    const tags = allValues.map(v => v.value_tag);
+function disconnectViewWebSocket() {
+    const session = viewSocketSession;
+    viewSocketSession = null;
+    if (session) {
+        clearTimeout(session.retryTimer);
+        closeViewSocket(session);
+    }
+}
 
-    // 3. ДІСТАЄМО НОДИ ТА ПРИСТРОЇ з нових полів структури Rust (UiUserGroupRead), яку ми зберегли в viewData
-    const nodeIds   = (viewData && viewData.nodes)   ? viewData.nodes   : [];
-    const deviceIds = (viewData && viewData.devices) ? viewData.devices : [];
+function viewTokenExpiresSoon() {
+    try {
+        const payload = auth.getAccess().split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        const claims = JSON.parse(atob(payload));
+        return !Number.isFinite(claims.exp) || claims.exp * 1000 <= Date.now() + 60000;
+    } catch {
+        return true;
+    }
+}
 
-    // Якщо взагалі нічого немає для підписки — виходимо
-    if (!tags.length && !nodeIds.length && !deviceIds.length) return;
+function scheduleViewReconnect(session) {
+    if (!viewSessionActive(session) || session.retryTimer !== null) return;
+    const delay = Math.min(1000 * (2 ** Math.min(session.retries++, 5)), 30000);
+    session.retryTimer = setTimeout(() => {
+        session.retryTimer = null;
+        openViewSocket(session);
+    }, delay);
+}
 
-    // 4. Визначаємо протокол (ws або wss)
-    const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+function retryViewSocket(session, socket) {
+    if (!viewSessionActive(session) || state.ws !== socket) return;
+    closeViewSocket(session);
+    session.refreshRequired = true;
+    scheduleViewReconnect(session);
+}
 
-    // 5. Дістаємо токен авторизації
-    const token = typeof auth !== 'undefined' && auth.getAccess ? auth.getAccess() : '';
+function pingViewSocket(session, socket) {
+    if (!viewSessionActive(session) || state.ws !== socket
+        || socket.readyState !== WebSocket.OPEN || session.pongTimer !== null) return;
+    try {
+        socket.send('ping');
+        session.pongTimer = setTimeout(() => retryViewSocket(session, socket), 10000);
+    } catch {
+        retryViewSocket(session, socket);
+    }
+}
 
-    // 6. Формуємо URL з токеном для нашого екранованого ws_handler
-    const wsUrl = `${wsProtocol}//${location.host}/live_data${token ? '?token=' + token : ''}`;
-
-    // 7. Створюємо об'єкт вебсокета
-    state.ws = new WebSocket(wsUrl);
-
-    // 8. Чекаємо події onopen (використовуємо function(e) і "this" для уникнення race condition)
-    state.ws.onopen = function(e) {
-
-        // Відправляємо заповнені масиви на Rust-бекенд
-        this.send(JSON.stringify({
-            values:  tags,
-            nodes:   nodeIds,   // Тепер тут реальні ID нод, наприклад [1, 2, 5]
-            devices: deviceIds, // Тепер тут реальні ID пристроїв, наприклад [10, 11]
-        }));
-    };
-
-    // Обробка живих повідомлень від Rust
-    state.ws.onmessage = (e) => {
-        try {
-            const data = JSON.parse(e.data);
-
-            if (data.values)  handleValueEvents(data.values);
-            if (data.nodes)   handleNodeEvents(data.nodes);
-            if (data.devices) handleDeviceEvents(data.devices);
-        } catch (err) {
-        }
-    };
-
-    // Обробка закриття сокета
-    state.ws.onclose = async (e) => {
-        state.ws = null;
-
-        if (e.code === 1000 && viewData) {
-            const ok = await tryRefresh();
-            if (ok) {
-                connectViewWebSocket(viewData.sub_groups);
-            } else {
-                goToLogin();
+async function openViewSocket(session) {
+    if (!viewSessionActive(session) || session.connecting || state.ws) return;
+    session.connecting = true;
+    try {
+        if (viewTokenExpiresSoon() || (session.refreshRequired && auth.getRefresh())) {
+            const refreshed = await tryRefresh();
+            if (!viewSessionActive(session)) return;
+            if (!refreshed) {
+                if (!auth.getRefresh()) goToLogin();
+                else scheduleViewReconnect(session);
+                return;
             }
         }
-    };
+        if (!viewSessionActive(session)) return;
+        session.refreshRequired = false;
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const token = encodeURIComponent(auth.getAccess() || '');
+        const socket = new WebSocket(`${protocol}//${location.host}/live_data?token=${token}`);
+        state.ws = socket;
+        session.connectTimer = setTimeout(() => retryViewSocket(session, socket), 15000);
+        socket.onopen = () => {
+            if (!viewSessionActive(session) || state.ws !== socket) return;
+            clearTimeout(session.connectTimer);
+            session.connectTimer = null;
+            session.retries = 0;
+            try {
+                socket.send(JSON.stringify(session.subscription));
+            } catch {
+                retryViewSocket(session, socket);
+                return;
+            }
+            session.heartbeatTimer = setInterval(() => pingViewSocket(session, socket), 20000);
+        };
+        socket.onmessage = (event) => {
+            if (!viewSessionActive(session) || state.ws !== socket) return;
+            if (event.data === 'pong') {
+                clearTimeout(session.pongTimer);
+                session.pongTimer = null;
+                return;
+            }
+            try {
+                const data = JSON.parse(event.data);
+                if (data.values) handleValueEvents(data.values);
+                if (data.nodes) handleNodeEvents(data.nodes);
+                if (data.devices) handleDeviceEvents(data.devices);
+            } catch (error) {
+                console.warn('Invalid live-data message', error);
+            }
+        };
+        // All close codes reconnect; intentional shutdown detaches these handlers first.
+        socket.onclose = socket.onerror = () => retryViewSocket(session, socket);
+    } catch {
+        if (viewSessionActive(session)) {
+            closeViewSocket(session);
+            scheduleViewReconnect(session);
+        }
+    } finally {
+        session.connecting = false;
+    }
 }
+
+function connectViewWebSocket(subGroups) {
+    disconnectViewWebSocket();
+    const tags = subGroups.flatMap(sg => sg.values).map(value => value.value_tag);
+    const nodes = viewData?.nodes || [];
+    const devices = viewData?.devices || [];
+    if (!tags.length && !nodes.length && !devices.length) return;
+    const session = {
+        groupId: state.currentGroupId,
+        subscription: { values: tags, nodes, devices },
+        retries: 0, connecting: false, refreshRequired: false,
+        retryTimer: null, connectTimer: null, pongTimer: null, heartbeatTimer: null,
+    };
+    viewSocketSession = session;
+    openViewSocket(session);
+}
+
+function resumeViewWebSocket() {
+    const session = viewSocketSession;
+    if (!session || !viewSessionActive(session)) return;
+    if (state.ws?.readyState === WebSocket.OPEN && !viewTokenExpiresSoon()) {
+        pingViewSocket(session, state.ws);
+    } else if (!session.connecting) {
+        closeViewSocket(session);
+        clearTimeout(session.retryTimer);
+        session.retryTimer = null;
+        openViewSocket(session);
+    }
+}
+window.addEventListener('online', resumeViewWebSocket);
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) resumeViewWebSocket();
+});
+
 // ОБРОБКА СТАНУ НОД (Всеїдна версія + текстовий алерт)
 function handleNodeEvents(nodes) {
     if (!Array.isArray(nodes)) return;
@@ -2218,13 +2319,16 @@ function fillSelect(id, items, mapper) {
 // AUTH — зберігання токенів
 // =====================================================
 const auth = {
+    revision: 0,
     getAccess()  { return sessionStorage.getItem('access_token'); },
     getRefresh() { return localStorage.getItem('refresh_token'); },
     setTokens(access, refresh) {
+        this.revision++;
         sessionStorage.setItem('access_token', access);
         if (refresh) localStorage.setItem('refresh_token', refresh);
     },
     clear() {
+        this.revision++;
         sessionStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
     },
@@ -2240,22 +2344,31 @@ async function tryRefresh() {
     const refreshToken = auth.getRefresh();
     if (!refreshToken) return false;
 
+    const revision = auth.revision;
     _refreshing = true;
     _refreshPromise = (async () => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 10000);
         try {
             const res = await fetch(`${API}/auth/refresh_token`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ refresh_token: refreshToken }),
+                signal: controller.signal,
             });
-            if (!res.ok) { auth.clear(); return false; }
+            if (auth.revision !== revision) return false;
+            if (!res.ok) {
+                if (res.status === 401 || res.status === 403) auth.clear();
+                return false;
+            }
             const data = await res.json();
+            if (auth.revision !== revision || !data.access_token) return false;
             auth.setTokens(data.access_token, data.refresh_token);
             return true;
         } catch {
-            auth.clear();
-            return false;
+            return false; // Network errors must not destroy a valid refresh token.
         } finally {
+            clearTimeout(timer);
             _refreshing = false;
             _refreshPromise = null;
         }
@@ -2265,6 +2378,7 @@ async function tryRefresh() {
 }
 
 function goToLogin() {
+    disconnectViewWebSocket();
     auth.clear();
     document.getElementById('login-overlay').classList.remove('hidden');
 }
@@ -2282,6 +2396,9 @@ async function apiFetch(path, options = {}, _retry = false) {
             if (_retry) { goToLogin(); return { __error: true, status: 401, message: 'Сесія закінчилась' }; }
             const refreshed = await tryRefresh();
             if (refreshed) return apiFetch(path, options, true);
+            if (auth.getRefresh()) {
+                return { __error: true, status: 503, message: 'Тимчасово не вдалося оновити сесію' };
+            }
             goToLogin();
             return { __error: true, status: 401, message: 'Сесія закінчилась' };
         }

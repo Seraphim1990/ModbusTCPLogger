@@ -139,3 +139,16 @@ messages. Cumulative dropped-message and output-error counters are reported in
 subsequent successful file writes with a `[LOGGER]` prefix. Disk errors do not
 cause unbounded buffering. Forced process termination can lose queued messages.
 The logger is initialized once and survives internal subsystem restarts.
+
+## Live-update recovery
+
+The WebSocket reconnects after connection loss or a server restart with a
+1–30 second backoff and restores the current group's value, node and device
+subscriptions. Logout and switching to configuration mode cancel reconnects.
+A text `ping` / `pong` heartbeat runs every 20 seconds with a 10-second response
+deadline; unchanged sensor values do not trigger false connection failures.
+Transient token-refresh network/server errors preserve stored credentials.
+
+Deploy the updated backend together with `static/admin.js` for heartbeat support,
+then reload existing browser tabs with Ctrl+F5. Run client regression tests with
+`node --test tests/admin-websocket.test.cjs` (no additional npm dependencies).
